@@ -12,6 +12,7 @@
 #define VERIFY 0
 
 constexpr int pivot_on { 1 };
+constexpr int native { 0 };
 
 template<typename T, typename U>
 void SingleGPUManaged( const int &device, const U &N, const U &lda, const U &ldb, T *A, T *B ) {
@@ -80,7 +81,10 @@ void SingleGPUManaged( const int &device, const U &N, const U &lda, const U &ldb
 
     /* step 4: LU factorization */
     if ( pivot_on ) {
-        CUDA_RT_CALL( magma_dgetrf_native( N, N, A, lda, d_Ipiv, d_info ) );
+        if ( native )
+            CUDA_RT_CALL( magma_dgetrf_native( N, N, A, lda, d_Ipiv, d_info ) );
+        else
+            CUDA_RT_CALL( magma_dgetrf_gpu( N, N, A, lda, d_Ipiv, d_info ) );
     } else {
         CUDA_RT_CALL( magma_dgetrf_nopiv_gpu( N, N, A, lda, d_info ) );
     }
