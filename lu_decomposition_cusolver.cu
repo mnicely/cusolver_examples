@@ -5,7 +5,6 @@
 
 #include <curand.h>
 #include <cusolverDn.h>
-#include <cusolverMg.h>
 
 #include "utilities.h"
 
@@ -223,7 +222,7 @@ int main( int argc, char *argv[] ) {
     int device = -1;
     CUDA_RT_CALL( cudaGetDevice( &device ) );
 
-    const int64_t m { 60000 };
+    const int64_t m { 39000 };
     const int64_t lda { m };
     const int64_t ldb { m };
 
