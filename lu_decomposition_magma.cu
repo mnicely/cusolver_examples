@@ -80,7 +80,7 @@ void SingleGPUManaged( const int &device, const U &N, const U &lda, const U &ldb
 
     /* step 4: LU factorization */
     if ( pivot_on ) {
-        CUDA_RT_CALL( magma_dgetrf_gpu( N, N, A, lda, d_Ipiv, d_info ) );
+        CUDA_RT_CALL( magma_dgetrf_native( N, N, A, lda, d_Ipiv, d_info ) );
     } else {
         CUDA_RT_CALL( magma_dgetrf_nopiv_gpu( N, N, A, lda, d_info ) );
     }
@@ -138,14 +138,17 @@ void SingleGPUManaged( const int &device, const U &N, const U &lda, const U &ldb
     CalculateResidualError( N, lda, A_input, B_input, B );
 #endif
 
-    if ( d_Ipiv )
-        CUDA_RT_CALL( cudaFree( d_Ipiv ) );
-    if ( d_info )
-        CUDA_RT_CALL( cudaFree( d_info ) );
-    if ( stream )
-        CUDA_RT_CALL( cudaStreamDestroy( stream ) );
-    if ( queue )
-        magma_queue_destroy( queue );
+    CUDA_RT_CALL( cudaFree( d_Ipiv ) );
+    CUDA_RT_CALL( cudaFree( d_info ) );
+    CUDA_RT_CALL( cudaStreamDestroy( stream ) );
+    magma_queue_destroy( queue );
+
+    CUDA_RT_CALL( cudaEventDestroy( startEvent ) );
+    CUDA_RT_CALL( cudaEventDestroy( stopEvent ) );
+#if VERIFY
+    CUDA_RT_CALL( cudaFree( A_input ) );
+    CUDA_RT_CALL( cudaFree( B_input ) );
+#endif
 }
 
 int main( int argc, char *argv[] ) {

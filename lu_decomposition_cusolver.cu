@@ -203,18 +203,20 @@ void SingleGPUManaged( const int &device, const U &N, const U &lda, const U &ldb
     CalculateResidualError( N, lda, A_input, B_input, B );
 #endif
 
-    if ( d_Ipiv )
-        CUDA_RT_CALL( cudaFree( d_Ipiv ) );
-    if ( d_info )
-        CUDA_RT_CALL( cudaFree( d_info ) );
-    if ( bufferOnDevice )
-        CUDA_RT_CALL( cudaFree( bufferOnDevice ) );
-    if ( bufferOnHost )
-        CUDA_RT_CALL( cudaFree( bufferOnHost ) );
-    if ( cusolverH )
-        CUDA_RT_CALL( cusolverDnDestroy( cusolverH ) );
-    if ( stream )
-        CUDA_RT_CALL( cudaStreamDestroy( stream ) );
+    CUDA_RT_CALL( cudaFree( d_Ipiv ) );
+    CUDA_RT_CALL( cudaFree( d_info ) );
+    CUDA_RT_CALL( cudaFree( bufferOnDevice ) );
+    CUDA_RT_CALL( cudaFree( bufferOnHost ) );
+    CUDA_RT_CALL( cusolverDnDestroy( cusolverH ) );
+    CUDA_RT_CALL( cudaStreamDestroy( stream ) );
+
+    CUDA_RT_CALL( cudaEventDestroy( startEvent ) );
+    CUDA_RT_CALL( cudaEventDestroy( stopEvent ) );
+
+#if VERIFY
+    CUDA_RT_CALL( cudaFree( A_input ) );
+    CUDA_RT_CALL( cudaFree( B_input ) );
+#endif
 }
 
 int main( int argc, char *argv[] ) {
