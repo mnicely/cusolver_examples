@@ -1,6 +1,8 @@
 #ifndef UTILITIES_H_
 #define UTILITIES_H_
 
+#include <vector>
+
 // *************** FOR ERROR CHECKING *******************
 #ifndef CUDA_RT_CALL
 #define CUDA_RT_CALL( call )                                                                                           \
@@ -107,35 +109,35 @@ T VecNrmInf( const int &N, const T *Z ) {
     return ( max_nrm );
 }
 
-template<typename T>
-void CalculateResidualError( const int &N, const int &lda, const T *A, const T *B, const T *X ) {
+template<typename T, typename U>
+void CalculateResidualError( const U &N, const U &lda, const T *A, const T *B, const T *X ) {
 
     // for ( int i = 0; i < N; i++ ) {
     //     std::printf("%f \n", B[i]);
     // }
 
     std::printf( "Measure residual error |b - A*x|\n" );
-    double max_err {};
-    for ( int row = 1; row <= N; row++ ) {
+    T max_err {};
+    for ( U row = 1; row <= N; row++ ) {
 
-        double sum {};
-        for ( int col = 1; col <= N; col++ ) {
+        T sum {};
+        for ( U col = 1; col <= N; col++ ) {
 
-            double Aij { A[Idx2f( row, col, lda )] };
-            double xj { X[Idx1f( col )] };
+            T Aij { A[Idx2f( row, col, lda )] };
+            T xj { X[Idx1f( col )] };
             sum += Aij * xj;
         }
-        double bi { B[Idx1f( row )] };
-        double err { std::fabs( bi - sum ) };
+        T bi { B[Idx1f( row )] };
+        T err { std::fabs( bi - sum ) };
 
         max_err = ( max_err > err ) ? max_err : err;
     }
 
-    double x_nrm_inf { VecNrmInf( N, X ) };
-    double b_nrm_inf { VecNrmInf( N, B ) };
+    T x_nrm_inf { VecNrmInf( N, X ) };
+    T b_nrm_inf { VecNrmInf( N, B ) };
 
-    double A_nrm_inf { 4.0 };
-    double rel_err { max_err / ( A_nrm_inf * x_nrm_inf + b_nrm_inf ) };
+    T A_nrm_inf { 4.0 };
+    T rel_err { max_err / ( A_nrm_inf * x_nrm_inf + b_nrm_inf ) };
 
     std::printf( "\n|b - A*x|_inf = %E\n", max_err );
     std::printf( "|x|_inf = %E\n", x_nrm_inf );
