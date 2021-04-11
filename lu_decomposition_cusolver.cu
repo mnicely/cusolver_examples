@@ -219,10 +219,13 @@ void SingleGPUManaged( const int &device, const U &N, const U &lda, const U &ldb
 
 int main( int argc, char *argv[] ) {
 
+    int64_t m = 512;
+    if ( argc > 1 )
+        m = std::atoi( argv[1] );
+
     int device = -1;
     CUDA_RT_CALL( cudaGetDevice( &device ) );
 
-    const int64_t m { 39000 };
     const int64_t lda { m };
     const int64_t ldb { m };
 

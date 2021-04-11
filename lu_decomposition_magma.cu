@@ -6,7 +6,6 @@
 #include <curand.h>
 
 #include "magma_v2.h"
-// #include "magma_lapack.h"
 
 #include "utilities.h"
 
@@ -20,7 +19,7 @@ void SingleGPUManaged( const int &device, const U &N, const U &lda, const U &ldb
     std::printf( "\ncuSolver: SingleGPUManaged GETRF\n" );
 
 #if VERIFY
-	size_t sizeBytesA { sizeof( T ) * lda * N };
+    size_t sizeBytesA { sizeof( T ) * lda * N };
     size_t sizeBytesB { sizeof( T ) * N };
 
     T *B_input {};
@@ -50,13 +49,15 @@ void SingleGPUManaged( const int &device, const U &N, const U &lda, const U &ldb
         std::printf( "Pivot is off: compute A = L*U (not numerically stable)\n" );
     }
 
-	magma_init();
-
     /* step 1: create cusolver handle, bind a stream */
 
-//     // Create stream
+    // Create stream
     cudaStream_t stream {};
     CUDA_RT_CALL( cudaStreamCreate( &stream ) );
+
+    magma_init( );
+    magma_queue_t queue;
+    magma_queue_create_from_cuda( device, stream, NULL, NULL, &queue );
 
     /* step 2: copy A to device */
     int *d_info { nullptr }; /* error info */
@@ -65,7 +66,7 @@ void SingleGPUManaged( const int &device, const U &N, const U &lda, const U &ldb
     U *d_Ipiv { nullptr }; /* pivoting sequence */
     if ( pivot_on ) {
         CUDA_RT_CALL( cudaMallocManaged( &d_Ipiv, sizeof( U ) * N ) );
-        CUDA_RT_CALL( cudaMemPrefetchAsync( d_Ipiv, sizeof( U ) * N, device, NULL ) );
+        CUDA_RT_CALL( cudaMemPrefetchAsync( d_Ipiv, sizeof( U ) * N, device, stream ) );
     }
 
     CheckMemoryUsed( 1 );
@@ -75,6 +76,8 @@ void SingleGPUManaged( const int &device, const U &N, const U &lda, const U &ldb
 
     CUDA_RT_CALL( cudaEventRecord( startEvent ) );
 
+    cudaDeviceSynchronize( );
+
     /* step 4: LU factorization */
     if ( pivot_on ) {
         CUDA_RT_CALL( magma_dgetrf_gpu( N, N, A, lda, d_Ipiv, d_info ) );
@@ -83,7 +86,7 @@ void SingleGPUManaged( const int &device, const U &N, const U &lda, const U &ldb
     }
 
     // Must be here to retrieve d_info
-    CUDA_RT_CALL( cudaStreamSynchronize( stream ) );
+    magma_queue_sync( queue );
 
     if ( *d_info ) {
         throw std::runtime_error( std::to_string( -*d_info ) + "-th parameter is wrong (cusolverDnDgetrf) \n" );
@@ -94,8 +97,7 @@ void SingleGPUManaged( const int &device, const U &N, const U &lda, const U &ldb
      */
 
     if ( pivot_on ) {
-        CUDA_RT_CALL( magma_dgetrs_gpu(
-			MagmaNoTrans,
+        CUDA_RT_CALL( magma_dgetrs_gpu( MagmaNoTrans,
                                         N,
                                         1, /* nrhs */
                                         A,
@@ -105,19 +107,18 @@ void SingleGPUManaged( const int &device, const U &N, const U &lda, const U &ldb
                                         ldb,
                                         d_info ) );
     } else {
-        CUDA_RT_CALL( magma_dgetrs_nopiv_gpu( 
-			MagmaNoTrans,
-                                        N,
-                                        1, /* nrhs */
-                                        A,
-                                        lda,
-                                        B,
-                                        ldb,
-                                        d_info ) );
+        CUDA_RT_CALL( magma_dgetrs_nopiv_gpu( MagmaNoTrans,
+                                              N,
+                                              1, /* nrhs */
+                                              A,
+                                              lda,
+                                              B,
+                                              ldb,
+                                              d_info ) );
     }
 
     // Must be here to retrieve d_info
-    CUDA_RT_CALL( cudaStreamSynchronize( stream ) );
+    magma_queue_sync( queue );
 
     if ( *d_info ) {
         throw std::runtime_error( std::to_string( -*d_info ) + "-th parameter is wrong (cusolverDnDgetrs) \n" );
@@ -143,14 +144,19 @@ void SingleGPUManaged( const int &device, const U &N, const U &lda, const U &ldb
         CUDA_RT_CALL( cudaFree( d_info ) );
     if ( stream )
         CUDA_RT_CALL( cudaStreamDestroy( stream ) );
+    if ( queue )
+        magma_queue_destroy( queue );
 }
 
 int main( int argc, char *argv[] ) {
 
+    magma_int_t m = 512;
+    if ( argc > 1 )
+        m = std::atoi( argv[1] );
+
     int device = -1;
     CUDA_RT_CALL( cudaGetDevice( &device ) );
 
-    const magma_int_t m { 39000 };
     const magma_int_t lda { m };
     const magma_int_t ldb { m };
 
