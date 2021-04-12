@@ -1,4 +1,4 @@
-NVCC	:=nvcc --cudart=static -ccbin g++ -Xcompiler -fopenmp
+NVCC	:=nvcc --cudart=static -ccbin g++
 CFLAGS	:=-O3 -std=c++11
 
 INC_DIR	:=

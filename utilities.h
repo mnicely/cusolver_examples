@@ -24,8 +24,6 @@
 #include <random>
 #include <vector>
 
-#include <omp.h>
-
 // *************** FOR ERROR CHECKING *******************
 #ifndef CUDA_RT_CALL
 #define CUDA_RT_CALL( call )                                                                                           \
@@ -122,7 +120,6 @@ void CreateRandomData( const int &device, const std::string &str, const int64_t 
     CUDA_RT_CALL( curandGenerateNormalDouble( gen, D, size, 100.0, 50.0 ) );
 
     CUDA_RT_CALL( cudaMemAdvise( D, size_bytes, cudaMemAdviseSetPreferredLocation, device ) );
-    CUDA_RT_CALL( cudaMemAdvise( D, size_bytes, cudaMemAdviseSetReadMostly, device ) );
 }
 
 /* compute |x|_inf */
