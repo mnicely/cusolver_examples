@@ -1,3 +1,23 @@
+// Redistribution and use in source and binary forms, with or without modification, are permitted
+// provided that the following conditions are met:
+//     * Redistributions of source code must retain the above copyright notice, this list of
+//       conditions and the following disclaimer.
+//     * Redistributions in binary form must reproduce the above copyright notice, this list of
+//       conditions and the following disclaimer in the documentation and/or other materials
+//       provided with the distribution.
+//     * Neither the name of the NVIDIA CORPORATION nor the names of its contributors may be used
+//       to endorse or promote products derived from this software without specific prior written
+//       permission.
+
+// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
+// IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
+// FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL NVIDIA CORPORATION BE LIABLE
+// FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
+// BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS;
+// OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
+// STRICT LIABILITY, OR TOR (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+// OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
 #include <cassert>
 #include <cstdio>
 #include <stdexcept>
@@ -69,14 +89,14 @@ void SingleGPUManaged( const int &device, const U &N, const U &lda, const U &ldb
         CUDA_RT_CALL( cudaMemPrefetchAsync( d_Ipiv, sizeof( U ) * N, device, stream ) );
     }
 
-    CheckMemoryUsed( 1 );
-
     // Check GPU memory used on single GPU
     CheckMemoryUsed( 1 );
 
     CUDA_RT_CALL( cudaEventRecord( startEvent ) );
 
     cudaDeviceSynchronize( );
+
+    std::printf( "\nSolve A*X = B: GETRF and GETRS\n" );
 
     /* step 4: LU factorization */
     if ( pivot_on ) {
@@ -173,14 +193,8 @@ int main( int argc, char *argv[] ) {
     CUDA_RT_CALL( cudaMemPrefetchAsync( m_B, sizeof( double ) * m, device, NULL ) );
 
     // Generate random numbers on the GPU
-    curandGenerator_t gen;
-    CUDA_RT_CALL( curandCreateGenerator( &gen, CURAND_RNG_PSEUDO_DEFAULT ) );
-    CUDA_RT_CALL( curandSetPseudoRandomGeneratorSeed( gen, 1234ULL ) );
-    std::printf(
-        "Number generation of %lu values (A): %lu\n", static_cast<size_t>( m ) * lda, sizeof( double ) * lda * m );
-    CUDA_RT_CALL( curandGenerateNormalDouble( gen, m_A, static_cast<size_t>( m ) * lda, 100.0, 50.0 ) );
-    std::printf( "Number generation of %lu values (B): %lu\n", static_cast<size_t>( m ), sizeof( double ) * m );
-    CUDA_RT_CALL( curandGenerateNormalDouble( gen, m_B, static_cast<size_t>( m ), 100.0, 50.0 ) );
+    CreateRandomData( device, "A", m * lda, m_A );
+    CreateRandomData( device, "B", m, m_B );
 
     // Managed Memory
     std::printf( "Run LU Decomposition\n" );

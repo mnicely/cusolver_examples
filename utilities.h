@@ -1,7 +1,30 @@
+// Redistribution and use in source and binary forms, with or without modification, are permitted
+// provided that the following conditions are met:
+//     * Redistributions of source code must retain the above copyright notice, this list of
+//       conditions and the following disclaimer.
+//     * Redistributions in binary form must reproduce the above copyright notice, this list of
+//       conditions and the following disclaimer in the documentation and/or other materials
+//       provided with the distribution.
+//     * Neither the name of the NVIDIA CORPORATION nor the names of its contributors may be used
+//       to endorse or promote products derived from this software without specific prior written
+//       permission.
+
+// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
+// IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
+// FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL NVIDIA CORPORATION BE LIABLE
+// FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
+// BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS;
+// OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
+// STRICT LIABILITY, OR TOR (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+// OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
 #ifndef UTILITIES_H_
 #define UTILITIES_H_
 
+#include <random>
 #include <vector>
+
+#include <omp.h>
 
 // *************** FOR ERROR CHECKING *******************
 #ifndef CUDA_RT_CALL
@@ -63,6 +86,7 @@ void CheckMemoryUsed( const int &num_devices ) {
 
     int currentDev {}; /* record current device ID */
     CUDA_RT_CALL( cudaGetDevice( &currentDev ) );
+    CUDA_RT_CALL( cudaDeviceSynchronize( ) );
 
     for ( int idx = 0; idx < num_devices; idx++ ) {
 
@@ -74,25 +98,31 @@ void CheckMemoryUsed( const int &num_devices ) {
     }
 
     CUDA_RT_CALL( cudaSetDevice( currentDev ) );
+    CUDA_RT_CALL( cudaDeviceSynchronize( ) );
 
     std::printf( "Total memory used: %lu\n", mem_used );
 }
 
 template<typename T>
-void CheckIfIdentical( const int &num_devices, const T &single_X, const T &multi_X ) {
+void CreateRandomData( const int &device, const std::string &str, const int64_t &size, T *D ) {
 
-    using data_type = typename T::value_type;
+    const size_t size_bytes { sizeof( T ) * size };
+    CUDA_RT_CALL( cudaMemPrefetchAsync( D, size_bytes, device, NULL ) );
 
-    // Custom compare lambda
-    // std::abs used to remove negative zeros
-    auto comparator = []( data_type const &a, data_type const &b ) { return ( std::abs( a - b ) < tolerance ); };
+    std::printf( "Number generation of %lu values (%s): %lu (bytes)\n", size, str.c_str( ), size_bytes );
 
-    // for ( int i = 0; i < 10; i++ ) {
-    //     std::printf( "%f %f %f\n", single_X[i], multi_X[i], std::abs(single_X[i] - multi_X[i]) );
-    // }
+    curandGenerator_t gen;
+    if ( device < 0 ) {
+        CUDA_RT_CALL( curandCreateGeneratorHost( &gen, CURAND_RNG_PSEUDO_DEFAULT ) );
+    } else {
+        CUDA_RT_CALL( curandCreateGenerator( &gen, CURAND_RNG_PSEUDO_DEFAULT ) );
+    }
 
-    if ( std::equal( single_X.begin( ), single_X.end( ), multi_X.begin( ), comparator ) )
-        std::printf( "Single GPU and Multi GPU (%d) results are identical\n\n", num_devices );
+    CUDA_RT_CALL( curandSetPseudoRandomGeneratorSeed( gen, 1234ULL ) );
+    CUDA_RT_CALL( curandGenerateNormalDouble( gen, D, size, 100.0, 50.0 ) );
+
+    CUDA_RT_CALL( cudaMemAdvise( D, size_bytes, cudaMemAdviseSetPreferredLocation, device ) );
+    CUDA_RT_CALL( cudaMemAdvise( D, size_bytes, cudaMemAdviseSetReadMostly, device ) );
 }
 
 /* compute |x|_inf */
@@ -111,10 +141,6 @@ T VecNrmInf( const int &N, const T *Z ) {
 
 template<typename T, typename U>
 void CalculateResidualError( const U &N, const U &lda, const T *A, const T *B, const T *X ) {
-
-    // for ( int i = 0; i < N; i++ ) {
-    //     std::printf("%f \n", B[i]);
-    // }
 
     std::printf( "Measure residual error |b - A*x|\n" );
     T max_err {};
@@ -156,6 +182,7 @@ void WorkspaceFree( const int &num_devices,
 ) {
     int currentDev {}; /* record current device ID */
     CUDA_RT_CALL( cudaGetDevice( &currentDev ) );
+    CUDA_RT_CALL( cudaDeviceSynchronize( ) );
 
     for ( int idx = 0; idx < num_devices; idx++ ) {
 
@@ -163,12 +190,14 @@ void WorkspaceFree( const int &num_devices,
 
         /* WARNING: we need to set device before any runtime API */
         CUDA_RT_CALL( cudaSetDevice( deviceId ) );
+        CUDA_RT_CALL( cudaDeviceSynchronize( ) );
 
         if ( array_d_work[idx] ) {
-            cudaFree( array_d_work[idx] );
+            CUDA_RT_CALL( cudaFree( array_d_work[idx] ) );
         }
     }
     CUDA_RT_CALL( cudaSetDevice( currentDev ) );
+    CUDA_RT_CALL( cudaDeviceSynchronize( ) );
 }
 
 template<typename T>
@@ -181,6 +210,7 @@ void WorkspaceAlloc( const int &   num_devices,
 
     int currentDev {}; /* record current device ID */
     CUDA_RT_CALL( cudaGetDevice( &currentDev ) );
+    CUDA_RT_CALL( cudaDeviceSynchronize( ) );
 
     for ( int idx = 0; idx < num_devices; idx++ ) {
 
@@ -189,12 +219,14 @@ void WorkspaceAlloc( const int &   num_devices,
 
         /* WARNING: we need to set device before any runtime API */
         CUDA_RT_CALL( cudaSetDevice( deviceId ) );
+        CUDA_RT_CALL( cudaDeviceSynchronize( ) );
 
         CUDA_RT_CALL( cudaMalloc( reinterpret_cast<void **>( &d_workspace ), sizeInBytes ) );
 
         array_d_work[idx] = d_workspace;
     }
     CUDA_RT_CALL( cudaSetDevice( currentDev ) );
+    CUDA_RT_CALL( cudaDeviceSynchronize( ) );
 }
 
 /*
@@ -213,6 +245,7 @@ void CreateMat( const int &num_devices,
     int currentDev {}; /* record current device id */
 
     CUDA_RT_CALL( cudaGetDevice( &currentDev ) );
+    CUDA_RT_CALL( cudaDeviceSynchronize( ) );
 
     const int Z_num_blks { ( N_Z + T_Z - 1 ) / T_Z };
     const int max_Z_num_blks_per_device { ( Z_num_blks + num_devices - 1 ) / num_devices };
@@ -220,6 +253,9 @@ void CreateMat( const int &num_devices,
     for ( int p = 0; p < num_devices; p++ ) {
 
         CUDA_RT_CALL( cudaSetDevice( deviceIdZ[p] ) );
+        CUDA_RT_CALL( cudaDeviceSynchronize( ) );
+
+        // std::printf( "Allocating %lu on device %d\n", sizeof( T ) * LLD_Z * T_Z * max_Z_num_blks_per_device, p );
 
         /* Allocate max_A_num_blks_per_device blocks per device */
         CUDA_RT_CALL( cudaMalloc( &( array_d_Z[p] ), sizeof( T ) * LLD_Z * T_Z * max_Z_num_blks_per_device ) );
@@ -229,6 +265,7 @@ void CreateMat( const int &num_devices,
     }
 
     CUDA_RT_CALL( cudaSetDevice( currentDev ) );
+    CUDA_RT_CALL( cudaDeviceSynchronize( ) );
 }
 
 /*
@@ -245,10 +282,12 @@ void DestroyMat( const int &num_devices,
     int currentDev {}; /* record current device id */
 
     CUDA_RT_CALL( cudaGetDevice( &currentDev ) );
+    CUDA_RT_CALL( cudaDeviceSynchronize( ) );
 
     for ( int p = 0; p < num_devices; p++ ) {
 
         CUDA_RT_CALL( cudaSetDevice( deviceIdZ[p] ) );
+        CUDA_RT_CALL( cudaDeviceSynchronize( ) );
 
         if ( array_d_Z[p] ) {
             CUDA_RT_CALL( cudaFree( array_d_Z[p] ) );
@@ -256,12 +295,14 @@ void DestroyMat( const int &num_devices,
     }
 
     CUDA_RT_CALL( cudaSetDevice( currentDev ) );
+    CUDA_RT_CALL( cudaDeviceSynchronize( ) );
 }
 
 void EnablePeerAccess( const int &num_devices ) {
 
     int currentDevice {};
     CUDA_RT_CALL( cudaGetDevice( &currentDevice ) );
+    CUDA_RT_CALL( cudaDeviceSynchronize( ) );
 
     /* Remark: access granted by this cudaDeviceEnablePeerAccess is
      * unidirectional */
@@ -270,6 +311,7 @@ void EnablePeerAccess( const int &num_devices ) {
     for ( int row = 0; row < num_devices; row++ ) {
 
         CUDA_RT_CALL( cudaSetDevice( row ) );
+        CUDA_RT_CALL( cudaDeviceSynchronize( ) );
 
         for ( int col = 0; col < num_devices; col++ ) {
 
@@ -277,16 +319,14 @@ void EnablePeerAccess( const int &num_devices ) {
                 int canAccessPeer {};
                 CUDA_RT_CALL( cudaDeviceCanAccessPeer( &canAccessPeer, row, col ) );
                 if ( canAccessPeer ) {
-                    // std::printf( "\tEnable peer access from gpu %d to gpu
-                    // %d\n",
-                    //              row,
-                    //              col );
+                    std::printf( "\tEnable peer access from gpu %d to gpu % d\n", row, col );
                     CUDA_RT_CALL( cudaDeviceEnablePeerAccess( col, 0 ) );
                 }
             }
         }
     }
     CUDA_RT_CALL( cudaSetDevice( currentDevice ) );
+    CUDA_RT_CALL( cudaDeviceSynchronize( ) );
 }
 
 /*
@@ -372,8 +412,8 @@ void MemcpyH2D( const int &num_devices,
 
     for ( int p_z = 0; p_z < num_devices; p_z++ ) {
 
-        // std::printf( "device #%d in %d\n", p_z, deviceIdZ[p_z] );
-        // CUDA_RT_CALL( cudaSetDevice( deviceIdZ[p_z] ) );
+        CUDA_RT_CALL( cudaSetDevice( deviceIdZ[p_z] ) );
+        CUDA_RT_CALL( cudaDeviceSynchronize( ) );
 
         /* region of interest: JZ_start_blk_id:1:JZ_end_blk_id */
         for ( int JZ_blk_id = p_z; JZ_blk_id <= JZ_end_blk_id; JZ_blk_id += num_devices ) {
@@ -381,8 +421,6 @@ void MemcpyH2D( const int &num_devices,
             if ( JZ_blk_id < JZ_start_blk_id ) {
                 continue;
             }
-
-            // std::printf( "JZ_blk_id = %d\n", JZ_blk_id );
 
             /*
              * process column block of Z
@@ -402,15 +440,8 @@ void MemcpyH2D( const int &num_devices,
 
             const T *h_ZZ { h_Z + Idx2f( Z_start_row - IZ + 1, Z_start_col - JZ + 1, ldz ) };
 
-            // std::printf( "JZ_blk_id = %d\n", JZ_blk_id );
-
-            // std::printf( "%p %lu %p %lu %lu %lu\n",
-            //              d_Z,
-            //              static_cast<size_t>( LLD_Z ) * sizeof( T ),
-            //              h_ZZ, /* src */
-            //              static_cast<size_t>( ldz ) * sizeof( T ),
-            //              static_cast<size_t>( M ) * sizeof( T ),
-            //              static_cast<size_t>( IT_Z ) );
+            // std::printf(
+            //     "Device %d: %lu\n", p_z, ( static_cast<size_t>( M ) * sizeof( T ) * static_cast<size_t>( IT_Z ) ) );
 
             CUDA_RT_CALL( cudaMemcpy2D( d_Z, /* dst */
                                         static_cast<size_t>( LLD_Z ) * sizeof( T ),
@@ -481,7 +512,8 @@ void MemcpyD2H( const int &num_devices,
 
     for ( int p_z = 0; p_z < num_devices; p_z++ ) {
 
-        // CUDA_RT_CALL( cudaSetDevice( deviceIdZ[p_z] ) );
+        CUDA_RT_CALL( cudaSetDevice( deviceIdZ[p_z] ) );
+        CUDA_RT_CALL( cudaDeviceSynchronize( ) );
 
         /* region of interest: JA_start_blk_id:1:JA_end_blk_id */
         for ( int JZ_blk_id = p_z; JZ_blk_id <= JZ_end_blk_id; JZ_blk_id += num_devices ) {

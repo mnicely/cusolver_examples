@@ -1,4 +1,4 @@
-NVCC	:=nvcc --cudart=static -ccbin g++
+NVCC	:=nvcc --cudart=static -ccbin g++ -Xcompiler -fopenmp
 CFLAGS	:=-O3 -std=c++11
 
 INC_DIR	:=
@@ -14,12 +14,17 @@ MAGMALIB	 := -L$(MAGMADIR)/lib
 MAGMAINC	 := -I$(MAGMADIR)/include
 MAGMA_LIBS   := -L$(MAGMADIR)/lib -lmagma
 
-SOURCES :=lu_decomposition_cusolver lu_decomposition_magma
+SOURCES :=lu_decomposition_cusolver \
+			lu_decomposition_cusolvermg \
+			lu_decomposition_magma 
 
 all: $(SOURCES)
 .PHONY: all
 
 lu_decomposition_cusolver: lu_decomposition_cusolver.cu
+	$(NVCC) $(CFLAGS) $(INC_DIR) $(LIB_DIR) ${ARCHES} $^ -o $@ $(LIBS)
+
+lu_decomposition_cusolvermg: lu_decomposition_cusolvermg.cu
 	$(NVCC) $(CFLAGS) $(INC_DIR) $(LIB_DIR) ${ARCHES} $^ -o $@ $(LIBS)
 
 lu_decomposition_magma: lu_decomposition_magma.cu
