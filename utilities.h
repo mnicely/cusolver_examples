@@ -316,7 +316,7 @@ void EnablePeerAccess( const int &num_devices ) {
                 int canAccessPeer {};
                 CUDA_RT_CALL( cudaDeviceCanAccessPeer( &canAccessPeer, row, col ) );
                 if ( canAccessPeer ) {
-                    std::printf( "\tEnable peer access from gpu %d to gpu % d\n", row, col );
+                    // std::printf( "\tEnable peer access from gpu %d to gpu % d\n", row, col );
                     CUDA_RT_CALL( cudaDeviceEnablePeerAccess( col, 0 ) );
                 }
             }
