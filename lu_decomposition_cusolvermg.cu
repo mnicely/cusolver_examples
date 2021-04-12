@@ -28,14 +28,14 @@
 
 #include "utilities.h"
 
-#define VERIFY 0
+#define VERIFY 1
 
 template<typename T>
 void MultiGPU( const int &    num_devices,
                int *          device_list,
-               const int64_t &N,
-               const int64_t &lda,
-               const int64_t &ldb,
+               const int &N,
+               const int &lda,
+               const int &ldb,
                T *            A,
                T *            B,
                T *            X ) {
@@ -103,6 +103,7 @@ void MultiGPU( const int &    num_devices,
     std::vector<int *> array_d_IPIV( num_devices );
 
     /* A := 0 */
+    std::printf("Create A\n");
     CreateMat( num_devices,
                device_list,
                N,   /* number of columns of global A */
@@ -110,6 +111,7 @@ void MultiGPU( const int &    num_devices,
                lda, /* leading dimension of local A */
                array_d_A.data( ) );
     /* B := 0 */
+    std::printf("Create B\n");
     CreateMat( num_devices,
                device_list,
                1, /* number of columns of global B */
@@ -117,6 +119,7 @@ void MultiGPU( const int &    num_devices,
                ldb,       /* leading dimension of local B */
                array_d_B.data( ) );
     /* IPIV := 0, IPIV is consistent with A */
+    std::printf("Create IPIV\n");
     CreateMat( num_devices,
                device_list,
                N,   /* number of columns of global IPIV */
@@ -127,6 +130,7 @@ void MultiGPU( const int &    num_devices,
     std::printf( "\nPrepare data on devices\n" );
 
     /* distribute A to array_d_A */
+    std::printf("Copy A\n");
     MemcpyH2D( num_devices,
                device_list,
                N,
@@ -141,6 +145,7 @@ void MultiGPU( const int &    num_devices,
                JA );
 
     /* distribute B to array_d_B */
+    std::printf("Copy B\n");
     MemcpyH2D( num_devices,
                device_list,
                N,
@@ -304,7 +309,7 @@ void MultiGPU( const int &    num_devices,
 
 int main( int argc, char *argv[] ) {
 
-    int64_t m = 512;
+    int m = 512;
     if ( argc > 1 )
         m = std::atoi( argv[1] );
 
@@ -318,8 +323,8 @@ int main( int argc, char *argv[] ) {
     std::printf( "Enable peer access\n" );
     EnablePeerAccess( num_devices );
 
-    const int64_t lda { m };
-    const int64_t ldb { m };
+    const int lda { m };
+    const int ldb { m };
 
     using data_type = double;
 
@@ -327,18 +332,17 @@ int main( int argc, char *argv[] ) {
     data_type *m_B {};
     data_type *m_X {};
 
-    CUDA_RT_CALL( cudaMallocManaged( &m_A, sizeof( data_type ) * lda * m ) );
+    CUDA_RT_CALL( cudaMallocManaged( &m_A, sizeof( data_type ) * static_cast<int64_t>(lda) * m ) );
     CUDA_RT_CALL( cudaMallocManaged( &m_B, sizeof( data_type ) * m ) );
     CUDA_RT_CALL( cudaMallocManaged( &m_X, sizeof( data_type ) * m ) );
 
     // // Generate random numbers on the CPU
-    CreateRandomData( cudaCpuDeviceId, "A", m * lda, m_A );
+    CreateRandomData( cudaCpuDeviceId, "A", static_cast<int64_t>(lda) * m, m_A );
     CreateRandomData( cudaCpuDeviceId, "B", m, m_B );
 
     // Managed Memory
     std::printf( "\nRun LU Decomposition\n" );
     for ( int i = 1; i < ( num_devices * 2 ); i *= 2 ) {
-        
         MultiGPU( i, device_list.data( ), m, lda, ldb, m_A, m_B, m_X );
     }
 

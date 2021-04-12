@@ -61,8 +61,8 @@ constexpr T Idx1f( const T &i ) {
 }
 
 template<typename T>
-constexpr T Idx2f( const T &i, const T &j, const T &lda ) {
-    return ( ( ( j - 1 ) * static_cast<size_t>( lda ) ) + ( i - 1 ) );
+constexpr int64_t Idx2f( const T &i, const T &j, const T &lda ) {
+    return ( ( ( j - 1 ) * static_cast<int64_t>( lda ) ) + ( i - 1 ) );
 }
 
 void GetDeviceProperties( const int &num_devices, int *device_list ) {
@@ -179,7 +179,6 @@ void WorkspaceFree( const int &num_devices,
 ) {
     int currentDev {}; /* record current device ID */
     CUDA_RT_CALL( cudaGetDevice( &currentDev ) );
-    CUDA_RT_CALL( cudaDeviceSynchronize( ) );
 
     for ( int idx = 0; idx < num_devices; idx++ ) {
 
@@ -187,14 +186,12 @@ void WorkspaceFree( const int &num_devices,
 
         /* WARNING: we need to set device before any runtime API */
         CUDA_RT_CALL( cudaSetDevice( deviceId ) );
-        CUDA_RT_CALL( cudaDeviceSynchronize( ) );
 
         if ( array_d_work[idx] ) {
             CUDA_RT_CALL( cudaFree( array_d_work[idx] ) );
         }
     }
     CUDA_RT_CALL( cudaSetDevice( currentDev ) );
-    CUDA_RT_CALL( cudaDeviceSynchronize( ) );
 }
 
 template<typename T>
@@ -207,7 +204,6 @@ void WorkspaceAlloc( const int &   num_devices,
 
     int currentDev {}; /* record current device ID */
     CUDA_RT_CALL( cudaGetDevice( &currentDev ) );
-    CUDA_RT_CALL( cudaDeviceSynchronize( ) );
 
     for ( int idx = 0; idx < num_devices; idx++ ) {
 
@@ -216,14 +212,14 @@ void WorkspaceAlloc( const int &   num_devices,
 
         /* WARNING: we need to set device before any runtime API */
         CUDA_RT_CALL( cudaSetDevice( deviceId ) );
-        CUDA_RT_CALL( cudaDeviceSynchronize( ) );
 
-        CUDA_RT_CALL( cudaMalloc( reinterpret_cast<void **>( &d_workspace ), sizeInBytes ) );
+        CUDA_RT_CALL( cudaMallocManaged( &d_workspace , sizeInBytes ) );
+        CUDA_RT_CALL( cudaMemPrefetchAsync( d_workspace, sizeInBytes, deviceId, NULL ) );
+        // CUDA_RT_CALL( cudaMalloc( reinterpret_cast<void **>( &d_workspace ), sizeInBytes ) );
 
         array_d_work[idx] = d_workspace;
     }
     CUDA_RT_CALL( cudaSetDevice( currentDev ) );
-    CUDA_RT_CALL( cudaDeviceSynchronize( ) );
 }
 
 /*
@@ -242,7 +238,6 @@ void CreateMat( const int &num_devices,
     int currentDev {}; /* record current device id */
 
     CUDA_RT_CALL( cudaGetDevice( &currentDev ) );
-    CUDA_RT_CALL( cudaDeviceSynchronize( ) );
 
     const int Z_num_blks { ( N_Z + T_Z - 1 ) / T_Z };
     const int max_Z_num_blks_per_device { ( Z_num_blks + num_devices - 1 ) / num_devices };
@@ -250,19 +245,19 @@ void CreateMat( const int &num_devices,
     for ( int p = 0; p < num_devices; p++ ) {
 
         CUDA_RT_CALL( cudaSetDevice( deviceIdZ[p] ) );
-        CUDA_RT_CALL( cudaDeviceSynchronize( ) );
 
         // std::printf( "Allocating %lu on device %d\n", sizeof( T ) * LLD_Z * T_Z * max_Z_num_blks_per_device, p );
 
         /* Allocate max_A_num_blks_per_device blocks per device */
-        CUDA_RT_CALL( cudaMalloc( &( array_d_Z[p] ), sizeof( T ) * LLD_Z * T_Z * max_Z_num_blks_per_device ) );
+        // CUDA_RT_CALL( cudaMalloc( &( array_d_Z[p] ), sizeof( T ) * LLD_Z * T_Z * max_Z_num_blks_per_device ) );
+        CUDA_RT_CALL( cudaMallocManaged( &( array_d_Z[p] ), sizeof( T ) * LLD_Z * T_Z * max_Z_num_blks_per_device ) );
+        CUDA_RT_CALL( cudaMemPrefetchAsync( array_d_Z[p], sizeof( T ) * LLD_Z * T_Z * max_Z_num_blks_per_device, deviceIdZ[p], NULL ) );
 
         /* A := 0 */
         CUDA_RT_CALL( cudaMemset( array_d_Z[p], 0, sizeof( T ) * LLD_Z * T_Z * max_Z_num_blks_per_device ) );
     }
 
     CUDA_RT_CALL( cudaSetDevice( currentDev ) );
-    CUDA_RT_CALL( cudaDeviceSynchronize( ) );
 }
 
 /*
@@ -279,12 +274,10 @@ void DestroyMat( const int &num_devices,
     int currentDev {}; /* record current device id */
 
     CUDA_RT_CALL( cudaGetDevice( &currentDev ) );
-    CUDA_RT_CALL( cudaDeviceSynchronize( ) );
 
     for ( int p = 0; p < num_devices; p++ ) {
 
         CUDA_RT_CALL( cudaSetDevice( deviceIdZ[p] ) );
-        CUDA_RT_CALL( cudaDeviceSynchronize( ) );
 
         if ( array_d_Z[p] ) {
             CUDA_RT_CALL( cudaFree( array_d_Z[p] ) );
@@ -292,14 +285,12 @@ void DestroyMat( const int &num_devices,
     }
 
     CUDA_RT_CALL( cudaSetDevice( currentDev ) );
-    CUDA_RT_CALL( cudaDeviceSynchronize( ) );
 }
 
 void EnablePeerAccess( const int &num_devices ) {
 
     int currentDevice {};
     CUDA_RT_CALL( cudaGetDevice( &currentDevice ) );
-    CUDA_RT_CALL( cudaDeviceSynchronize( ) );
 
     /* Remark: access granted by this cudaDeviceEnablePeerAccess is
      * unidirectional */
@@ -308,7 +299,6 @@ void EnablePeerAccess( const int &num_devices ) {
     for ( int row = 0; row < num_devices; row++ ) {
 
         CUDA_RT_CALL( cudaSetDevice( row ) );
-        CUDA_RT_CALL( cudaDeviceSynchronize( ) );
 
         for ( int col = 0; col < num_devices; col++ ) {
 
@@ -323,7 +313,6 @@ void EnablePeerAccess( const int &num_devices ) {
         }
     }
     CUDA_RT_CALL( cudaSetDevice( currentDevice ) );
-    CUDA_RT_CALL( cudaDeviceSynchronize( ) );
 }
 
 /*
@@ -387,7 +376,6 @@ void MemcpyH2D( const int &num_devices,
     int currentDev {}; /* record current device id */
 
     CUDA_RT_CALL( cudaGetDevice( &currentDev ) );
-    CUDA_RT_CALL( cudaDeviceSynchronize( ) );
 
     const int num_blks { ( N_Z + T_Z - 1 ) / T_Z };
 
@@ -410,7 +398,6 @@ void MemcpyH2D( const int &num_devices,
     for ( int p_z = 0; p_z < num_devices; p_z++ ) {
 
         CUDA_RT_CALL( cudaSetDevice( deviceIdZ[p_z] ) );
-        CUDA_RT_CALL( cudaDeviceSynchronize( ) );
 
         /* region of interest: JZ_start_blk_id:1:JZ_end_blk_id */
         for ( int JZ_blk_id = p_z; JZ_blk_id <= JZ_end_blk_id; JZ_blk_id += num_devices ) {
@@ -437,9 +424,6 @@ void MemcpyH2D( const int &num_devices,
 
             const T *h_ZZ { h_Z + Idx2f( Z_start_row - IZ + 1, Z_start_col - JZ + 1, ldz ) };
 
-            // std::printf(
-            //     "Device %d: %lu\n", p_z, ( static_cast<size_t>( M ) * sizeof( T ) * static_cast<size_t>( IT_Z ) ) );
-
             CUDA_RT_CALL( cudaMemcpy2D( d_Z, /* dst */
                                         static_cast<size_t>( LLD_Z ) * sizeof( T ),
                                         h_ZZ, /* src */
@@ -450,7 +434,6 @@ void MemcpyH2D( const int &num_devices,
 
         } /* for each tile per device */
     }     /* for each device */
-    CUDA_RT_CALL( cudaDeviceSynchronize( ) );
     CUDA_RT_CALL( cudaSetDevice( currentDev ) );
 }
 
@@ -487,7 +470,6 @@ void MemcpyD2H( const int &num_devices,
     }
 
     CUDA_RT_CALL( cudaGetDevice( &currentDev ) );
-    CUDA_RT_CALL( cudaDeviceSynchronize( ) );
 
     const int num_blks { ( N_Z + T_Z - 1 ) / T_Z };
 
@@ -510,7 +492,6 @@ void MemcpyD2H( const int &num_devices,
     for ( int p_z = 0; p_z < num_devices; p_z++ ) {
 
         CUDA_RT_CALL( cudaSetDevice( deviceIdZ[p_z] ) );
-        CUDA_RT_CALL( cudaDeviceSynchronize( ) );
 
         /* region of interest: JA_start_blk_id:1:JA_end_blk_id */
         for ( int JZ_blk_id = p_z; JZ_blk_id <= JZ_end_blk_id; JZ_blk_id += num_devices ) {
@@ -544,7 +525,6 @@ void MemcpyD2H( const int &num_devices,
         } /* for each tile per device */
     }     /* for each device */
 
-    CUDA_RT_CALL( cudaDeviceSynchronize( ) );
     CUDA_RT_CALL( cudaSetDevice( currentDev ) );
 }
 
