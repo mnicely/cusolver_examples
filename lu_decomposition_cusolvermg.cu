@@ -63,8 +63,6 @@ void MultiGPU( const int &    num_devices,
     const int JB { 1 };
     const int T_B { 100 }; /* tile size of B */
 
-    const int numColInB { 1 };
-
     int info {};
 
     cudaLibMgMatrixDesc_t   descrA;
@@ -93,7 +91,7 @@ void MultiGPU( const int &    num_devices,
     /* (global) B is N-by-1 */
     CUDA_RT_CALL( cusolverMgCreateMatrixDesc( &descrB,
                                               N,         /* number of rows of (global) B */
-                                              numColInB, /* number of columns of (global) B */
+                                              1, /* number of columns of (global) B */
                                               N,         /* number or rows in a tile */
                                               T_B,       /* number of columns in a tile */
                                               CUDA_R_64F,
@@ -114,7 +112,7 @@ void MultiGPU( const int &    num_devices,
     /* B := 0 */
     CreateMat( num_devices,
                device_list,
-               numColInB, /* number of columns of global B */
+               1, /* number of columns of global B */
                T_B,       /* number of columns per column tile */
                ldb,       /* leading dimension of local B */
                array_d_B.data( ) );
@@ -149,7 +147,7 @@ void MultiGPU( const int &    num_devices,
                1, /* input */
                B,
                ldb,               /* output */
-               numColInB,         /* number of columns of global B */
+               1,         /* number of columns of global B */
                T_B,               /* number of columns per column tile */
                ldb,               /* leading dimension of local B */
                array_d_B.data( ), /* host pointer array of dimension num_devices */
@@ -263,7 +261,7 @@ void MultiGPU( const int &    num_devices,
                device_list,
                N,
                1,         /* input */
-               numColInB, /* number of columns of global B */
+               1, /* number of columns of global B */
                T_B,       /* number of columns per column tile */
                ldb,       /* leading dimension of local B */
                array_d_B.data( ),
@@ -277,9 +275,13 @@ void MultiGPU( const int &    num_devices,
 #endif
 
     std::printf( "Free resources\n" );
-    CUDA_RT_CALL( cusolverMgDestroy( cusolverMgH ) );
+    CUDA_RT_CALL( cudaEventDestroy( startEvent ) );
+    CUDA_RT_CALL( cudaEventDestroy( stopEvent ) );
+    // CUDA_RT_CALL( cusolverMgDestroy( cusolverMgH ) );
     CUDA_RT_CALL( cusolverMgDestroyMatrixDesc( descrA ) );
     CUDA_RT_CALL( cusolverMgDestroyMatrixDesc( descrB ) );
+    CUDA_RT_CALL( cusolverMgDestroyGrid( gridA ) );
+    CUDA_RT_CALL( cusolverMgDestroyGrid( gridB ) );
 
     DestroyMat( num_devices,
                 device_list,
@@ -288,7 +290,7 @@ void MultiGPU( const int &    num_devices,
                 array_d_A.data( ) );
     DestroyMat( num_devices,
                 device_list,
-                numColInB, /* number of columns of global B */
+                1, /* number of columns of global B */
                 T_B,       /* number of columns per column tile */
                 array_d_B.data( ) );
     DestroyMat( num_devices,
@@ -335,7 +337,10 @@ int main( int argc, char *argv[] ) {
 
     // Managed Memory
     std::printf( "\nRun LU Decomposition\n" );
-    MultiGPU( num_devices, device_list.data( ), m, lda, ldb, m_A, m_B, m_X );
+    for ( int i = 1; i < ( num_devices * 2 ); i *= 2 ) {
+        
+        MultiGPU( i, device_list.data( ), m, lda, ldb, m_A, m_B, m_X );
+    }
 
     CUDA_RT_CALL( cudaFree( m_A ) );
     CUDA_RT_CALL( cudaFree( m_B ) );
