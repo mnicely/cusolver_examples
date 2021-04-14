@@ -43,20 +43,19 @@
 #endif  // CUDA_RT_CALL
 // *************** FOR ERROR CHECKING *******************
 
-
 /**************************************************/
 /* RANDOM NUMBERS GENERATION STRUCTS AND FUNCTION */
 /**************************************************/
 template<typename T>
 struct Rand {
-    std::default_random_engine gen;
+    std::default_random_engine  gen;
     std::normal_distribution<T> dist;
-    Rand() : gen{}, dist(100.0, 50.0) {}
+    Rand( ) : gen {}, dist( 100.0, 50.0 ) {}
 
-    __host__ T operator( )(const T& VecElem) { return (dist(gen)); }
+    __host__ T operator( )( const T &VecElem ) {
+        return ( dist( gen ) );
+    }
 };
-
-
 
 constexpr double tolerance { 1e-6 };
 
@@ -221,7 +220,7 @@ void WorkspaceAlloc( const int &   num_devices,
         /* WARNING: we need to set device before any runtime API */
         CUDA_RT_CALL( cudaSetDevice( deviceId ) );
 
-        CUDA_RT_CALL( cudaMallocManaged( &d_workspace , sizeInBytes ) );
+        CUDA_RT_CALL( cudaMallocManaged( &d_workspace, sizeInBytes ) );
         CUDA_RT_CALL( cudaMemPrefetchAsync( d_workspace, sizeInBytes, deviceId, NULL ) );
         // CUDA_RT_CALL( cudaMalloc( reinterpret_cast<void **>( &d_workspace ), sizeInBytes ) );
 
@@ -259,7 +258,8 @@ void CreateMat( const int &num_devices,
         /* Allocate max_A_num_blks_per_device blocks per device */
         // CUDA_RT_CALL( cudaMalloc( &( array_d_Z[p] ), sizeof( T ) * LLD_Z * T_Z * max_Z_num_blks_per_device ) );
         CUDA_RT_CALL( cudaMallocManaged( &( array_d_Z[p] ), sizeof( T ) * LLD_Z * T_Z * max_Z_num_blks_per_device ) );
-        CUDA_RT_CALL( cudaMemPrefetchAsync( array_d_Z[p], sizeof( T ) * LLD_Z * T_Z * max_Z_num_blks_per_device, deviceIdZ[p], NULL ) );
+        CUDA_RT_CALL( cudaMemPrefetchAsync(
+            array_d_Z[p], sizeof( T ) * LLD_Z * T_Z * max_Z_num_blks_per_device, deviceIdZ[p], NULL ) );
 
         /* A := 0 */
         CUDA_RT_CALL( cudaMemset( array_d_Z[p], 0, sizeof( T ) * LLD_Z * T_Z * max_Z_num_blks_per_device ) );

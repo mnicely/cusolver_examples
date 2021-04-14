@@ -31,14 +31,14 @@
 #define VERIFY 1
 
 template<typename T>
-void MultiGPU( const int &    num_devices,
-               int *          device_list,
+void MultiGPU( const int &num_devices,
+               int *      device_list,
                const int &N,
                const int &lda,
                const int &ldb,
-               T *            A,
-               T *            B,
-               T *            X ) {
+               T *        A,
+               T *        B,
+               T *        X ) {
 
     // Start timer
     cudaEvent_t startEvent { nullptr };
@@ -85,10 +85,10 @@ void MultiGPU( const int &    num_devices,
 
     /* (global) B is N-by-1 */
     CUDA_RT_CALL( cusolverMgCreateMatrixDesc( &descrB,
-                                              N,         /* number of rows of (global) B */
-                                              1, /* number of columns of (global) B */
-                                              N,         /* number or rows in a tile */
-                                              T_B,       /* number of columns in a tile */
+                                              N,   /* number of rows of (global) B */
+                                              1,   /* number of columns of (global) B */
+                                              N,   /* number or rows in a tile */
+                                              T_B, /* number of columns in a tile */
                                               CUDA_R_64F,
                                               gridB ) );
 
@@ -98,7 +98,7 @@ void MultiGPU( const int &    num_devices,
     std::vector<int *> array_d_IPIV( num_devices );
 
     /* A := 0 */
-    std::printf("Create A\n");
+    std::printf( "Create A\n" );
     CreateMat( num_devices,
                device_list,
                N,   /* number of columns of global A */
@@ -106,15 +106,15 @@ void MultiGPU( const int &    num_devices,
                lda, /* leading dimension of local A */
                array_d_A.data( ) );
     /* B := 0 */
-    std::printf("Create B\n");
+    std::printf( "Create B\n" );
     CreateMat( num_devices,
                device_list,
-               1, /* number of columns of global B */
-               T_B,       /* number of columns per column tile */
-               ldb,       /* leading dimension of local B */
+               1,   /* number of columns of global B */
+               T_B, /* number of columns per column tile */
+               ldb, /* leading dimension of local B */
                array_d_B.data( ) );
     /* IPIV := 0, IPIV is consistent with A */
-    std::printf("Create IPIV\n");
+    std::printf( "Create IPIV\n" );
     CreateMat( num_devices,
                device_list,
                N,   /* number of columns of global IPIV */
@@ -125,7 +125,7 @@ void MultiGPU( const int &    num_devices,
     std::printf( "\nPrepare data on devices\n" );
 
     /* distribute A to array_d_A */
-    std::printf("Copy A\n");
+    std::printf( "Copy A\n" );
     MemcpyH2D( num_devices,
                device_list,
                N,
@@ -140,14 +140,14 @@ void MultiGPU( const int &    num_devices,
                JA );
 
     /* distribute B to array_d_B */
-    std::printf("Copy B\n");
+    std::printf( "Copy B\n" );
     MemcpyH2D( num_devices,
                device_list,
                N,
                1, /* input */
                B,
                ldb,               /* output */
-               1,         /* number of columns of global B */
+               1,                 /* number of columns of global B */
                T_B,               /* number of columns per column tile */
                ldb,               /* leading dimension of local B */
                array_d_B.data( ), /* host pointer array of dimension num_devices */
@@ -260,10 +260,10 @@ void MultiGPU( const int &    num_devices,
     MemcpyD2H( num_devices,
                device_list,
                N,
-               1,         /* input */
-               1, /* number of columns of global B */
-               T_B,       /* number of columns per column tile */
-               ldb,       /* leading dimension of local B */
+               1,   /* input */
+               1,   /* number of columns of global B */
+               T_B, /* number of columns per column tile */
+               ldb, /* leading dimension of local B */
                array_d_B.data( ),
                IB,
                JB, /* output */
@@ -290,8 +290,8 @@ void MultiGPU( const int &    num_devices,
                 array_d_A.data( ) );
     DestroyMat( num_devices,
                 device_list,
-                1, /* number of columns of global B */
-                T_B,       /* number of columns per column tile */
+                1,   /* number of columns of global B */
+                T_B, /* number of columns per column tile */
                 array_d_B.data( ) );
     DestroyMat( num_devices,
                 device_list,
@@ -329,9 +329,9 @@ int main( int argc, char *argv[] ) {
     data_type *m_B {};
     data_type *m_X {};
 
-    size_t sizeA { static_cast<size_t>(lda) * m };
-    size_t sizeB { static_cast<size_t>(m) };
-    size_t sizeX { static_cast<size_t>(m) };
+    size_t sizeA { static_cast<size_t>( lda ) * m };
+    size_t sizeB { static_cast<size_t>( m ) };
+    size_t sizeX { static_cast<size_t>( m ) };
 
     CUDA_RT_CALL( cudaMallocManaged( &m_A, sizeof( data_type ) * sizeA ) );
     CUDA_RT_CALL( cudaMallocManaged( &m_B, sizeof( data_type ) * sizeB ) );

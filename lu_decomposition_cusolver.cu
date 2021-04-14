@@ -43,16 +43,16 @@ void SingleGPUManaged( const int &device, const int &N, const int &lda, const in
     T *B_input {};
     T *A_input {};
 
-    std::printf("Allocating space for verification\n");
+    std::printf( "Allocating space for verification\n" );
     CUDA_RT_CALL( cudaMallocManaged( &A_input, sizeBytesA ) );
     CUDA_RT_CALL( cudaMallocManaged( &B_input, sizeBytesB ) );
 
     CUDA_RT_CALL( cudaMemPrefetchAsync( A_input, sizeBytesA, cudaCpuDeviceId, NULL ) );
     CUDA_RT_CALL( cudaMemPrefetchAsync( B_input, sizeBytesB, cudaCpuDeviceId, NULL ) );
 
-    std::printf("Copy A to A_input: Needed for verification\n");
+    std::printf( "Copy A to A_input: Needed for verification\n" );
     CUDA_RT_CALL( cudaMemcpy( A_input, A, sizeBytesA, cudaMemcpyDeviceToHost ) );
-    std::printf("Copy B to B_input: Needed for verification\n");
+    std::printf( "Copy B to B_input: Needed for verification\n" );
     CUDA_RT_CALL( cudaMemcpy( B_input, B, sizeBytesB, cudaMemcpyDeviceToHost ) );
 #endif
 
@@ -141,11 +141,11 @@ void SingleGPUManaged( const int &device, const int &N, const int &lda, const in
     if ( pivot_on ) {
         CUDA_RT_CALL( cusolverDnXgetrf( cusolverH,
                                         params,
-                                        static_cast<int64_t>(N),
-                                        static_cast<int64_t>(N),
+                                        static_cast<int64_t>( N ),
+                                        static_cast<int64_t>( N ),
                                         CUDA_C_64F,
                                         A,
-                                        static_cast<int64_t>(lda),
+                                        static_cast<int64_t>( lda ),
                                         d_Ipiv,
                                         CUDA_C_64F,
                                         bufferOnDevice,
@@ -156,11 +156,11 @@ void SingleGPUManaged( const int &device, const int &N, const int &lda, const in
     } else {
         CUDA_RT_CALL( cusolverDnXgetrf( cusolverH,
                                         params,
-                                        static_cast<int64_t>(N),
-                                        static_cast<int64_t>(N),
+                                        static_cast<int64_t>( N ),
+                                        static_cast<int64_t>( N ),
                                         CUDA_C_64F,
                                         A,
-                                        static_cast<int64_t>(lda),
+                                        static_cast<int64_t>( lda ),
                                         nullptr,
                                         CUDA_C_64F,
                                         bufferOnDevice,
@@ -188,29 +188,29 @@ void SingleGPUManaged( const int &device, const int &N, const int &lda, const in
         CUDA_RT_CALL( cusolverDnXgetrs( cusolverH,
                                         NULL,
                                         CUBLAS_OP_N,
-                                        static_cast<int64_t>(N),
+                                        static_cast<int64_t>( N ),
                                         1, /* nrhs */
                                         CUDA_C_64F,
                                         A,
-                                        static_cast<int64_t>(lda),
+                                        static_cast<int64_t>( lda ),
                                         d_Ipiv,
                                         CUDA_C_64F,
                                         B,
-                                        static_cast<int64_t>(ldb),
+                                        static_cast<int64_t>( ldb ),
                                         d_info ) );
     } else {
         CUDA_RT_CALL( cusolverDnXgetrs( cusolverH,
                                         NULL,
                                         CUBLAS_OP_N,
-                                        static_cast<int64_t>(N),
+                                        static_cast<int64_t>( N ),
                                         1, /* nrhs */
                                         CUDA_C_64F,
                                         A,
-                                        static_cast<int64_t>(lda),
+                                        static_cast<int64_t>( lda ),
                                         nullptr,
                                         CUDA_C_64F,
                                         B,
-                                        static_cast<int64_t>(ldb),
+                                        static_cast<int64_t>( ldb ),
                                         d_info ) );
     }
 
@@ -232,7 +232,11 @@ void SingleGPUManaged( const int &device, const int &N, const int &lda, const in
     CUDA_RT_CALL( cudaMemPrefetchAsync( B, sizeBytesB, cudaCpuDeviceId, stream ) );
 
     // Calculate Residual Error
-    CalculateResidualError( N, lda, reinterpret_cast<double*>(A_input), reinterpret_cast<double*>(B_input), reinterpret_cast<double*>(B) );
+    CalculateResidualError( N,
+                            lda,
+                            reinterpret_cast<double *>( A_input ),
+                            reinterpret_cast<double *>( B_input ),
+                            reinterpret_cast<double *>( B ) );
 #endif
 
     CUDA_RT_CALL( cudaFree( d_Ipiv ) );
@@ -270,24 +274,22 @@ int main( int argc, char *argv[] ) {
     data_type *m_A {};
     data_type *m_B {};
 
-    size_t sizeA { static_cast<size_t>(lda) * m };
-    size_t sizeB { static_cast<size_t>(m) };
+    size_t sizeA { static_cast<size_t>( lda ) * m };
+    size_t sizeB { static_cast<size_t>( m ) };
 
-    CUDA_RT_CALL( cudaMallocManaged( &m_A, sizeof( data_type ) * sizeA) );
-    CUDA_RT_CALL( cudaMallocManaged( &m_B, sizeof( data_type ) *sizeB ) );
+    CUDA_RT_CALL( cudaMallocManaged( &m_A, sizeof( data_type ) * sizeA ) );
+    CUDA_RT_CALL( cudaMallocManaged( &m_B, sizeof( data_type ) * sizeB ) );
 
     // Generate random numbers on the GPU
     // Convert to double and double the number of items for cuRand
-    CreateRandomData( "A", sizeA * 2, reinterpret_cast<double*>(m_A) );
-    CreateRandomData( "B", sizeB * 2, reinterpret_cast<double*>(m_B) );
+    CreateRandomData( "A", sizeA * 2, reinterpret_cast<double *>( m_A ) );
+    CreateRandomData( "B", sizeB * 2, reinterpret_cast<double *>( m_B ) );
 
     CUDA_RT_CALL( cudaDeviceSynchronize( ) );
 
     // // Managed Memory
     std::printf( "Run LU Decomposition\n" );
     SingleGPUManaged( device, m, lda, ldb, m_A, m_B );
-
-
 
     return ( EXIT_SUCCESS );
 }
