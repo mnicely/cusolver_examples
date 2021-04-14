@@ -23,12 +23,13 @@
 #include <stdexcept>
 #include <string>
 
+#include <cuComplex.h>
 #include <curand.h>
 #include <cusolverDn.h>
 
 #include "utilities.h"
 
-#define VERIFY 0
+#define VERIFY 1
 
 constexpr int pivot_on { 1 };
 
@@ -99,7 +100,7 @@ void SingleGPUManaged( const int &device, const int &N, const int &lda, const in
 
     // CUDA_RT_CALL( cusolverDnDgetrf_bufferSize( cusolverH, N, N, A, lda, &lwork ) );
     CUDA_RT_CALL( cusolverDnXgetrf_bufferSize(
-        cusolverH, NULL, N, N, CUDA_R_64F, A, lda, CUDA_R_64F, &workspaceInBytesOnDevice, &workspaceInBytesOnHost ) );
+        cusolverH, NULL, N, N, CUDA_C_64F, A, lda, CUDA_C_64F, &workspaceInBytesOnDevice, &workspaceInBytesOnHost ) );
 
     CheckMemoryUsed( 1 );
 
@@ -141,12 +142,12 @@ void SingleGPUManaged( const int &device, const int &N, const int &lda, const in
         CUDA_RT_CALL( cusolverDnXgetrf( cusolverH,
                                         params,
                                         static_cast<int64_t>(N),
-                                            static_cast<int64_t>(N),
-                                        CUDA_R_64F,
+                                        static_cast<int64_t>(N),
+                                        CUDA_C_64F,
                                         A,
                                         static_cast<int64_t>(lda),
                                         d_Ipiv,
-                                        CUDA_R_64F,
+                                        CUDA_C_64F,
                                         bufferOnDevice,
                                         workspaceInBytesOnDevice,
                                         bufferOnHost,
@@ -156,12 +157,12 @@ void SingleGPUManaged( const int &device, const int &N, const int &lda, const in
         CUDA_RT_CALL( cusolverDnXgetrf( cusolverH,
                                         params,
                                         static_cast<int64_t>(N),
-                                            static_cast<int64_t>(N),
-                                        CUDA_R_64F,
+                                        static_cast<int64_t>(N),
+                                        CUDA_C_64F,
                                         A,
                                         static_cast<int64_t>(lda),
                                         nullptr,
-                                        CUDA_R_64F,
+                                        CUDA_C_64F,
                                         bufferOnDevice,
                                         workspaceInBytesOnDevice,
                                         bufferOnHost,
@@ -189,11 +190,11 @@ void SingleGPUManaged( const int &device, const int &N, const int &lda, const in
                                         CUBLAS_OP_N,
                                         static_cast<int64_t>(N),
                                         1, /* nrhs */
-                                        CUDA_R_64F,
+                                        CUDA_C_64F,
                                         A,
                                         static_cast<int64_t>(lda),
                                         d_Ipiv,
-                                        CUDA_R_64F,
+                                        CUDA_C_64F,
                                         B,
                                         static_cast<int64_t>(ldb),
                                         d_info ) );
@@ -203,11 +204,11 @@ void SingleGPUManaged( const int &device, const int &N, const int &lda, const in
                                         CUBLAS_OP_N,
                                         static_cast<int64_t>(N),
                                         1, /* nrhs */
-                                        CUDA_R_64F,
+                                        CUDA_C_64F,
                                         A,
                                         static_cast<int64_t>(lda),
                                         nullptr,
-                                        CUDA_R_64F,
+                                        CUDA_C_64F,
                                         B,
                                         static_cast<int64_t>(ldb),
                                         d_info ) );
@@ -231,7 +232,7 @@ void SingleGPUManaged( const int &device, const int &N, const int &lda, const in
     CUDA_RT_CALL( cudaMemPrefetchAsync( B, sizeBytesB, cudaCpuDeviceId, stream ) );
 
     // Calculate Residual Error
-    CalculateResidualError( N, lda, A_input, B_input, B );
+    CalculateResidualError( N, lda, reinterpret_cast<double*>(A_input), reinterpret_cast<double*>(B_input), reinterpret_cast<double*>(B) );
 #endif
 
     CUDA_RT_CALL( cudaFree( d_Ipiv ) );
@@ -264,17 +265,21 @@ int main( int argc, char *argv[] ) {
     const int lda { m };
     const int ldb { m };
 
-    using data_type = double;
+    using data_type = cuDoubleComplex;
 
     data_type *m_A {};
     data_type *m_B {};
 
-    CUDA_RT_CALL( cudaMallocManaged( &m_A, sizeof( data_type ) * lda * m ) );
-    CUDA_RT_CALL( cudaMallocManaged( &m_B, sizeof( data_type ) * m ) );
+    size_t sizeA { static_cast<size_t>(lda) * m };
+    size_t sizeB { static_cast<size_t>(m) };
+
+    CUDA_RT_CALL( cudaMallocManaged( &m_A, sizeof( data_type ) * sizeA) );
+    CUDA_RT_CALL( cudaMallocManaged( &m_B, sizeof( data_type ) *sizeB ) );
 
     // Generate random numbers on the GPU
-    CreateRandomData( "A", static_cast<int64_t>(lda) * m, m_A );
-    CreateRandomData( "B", m, m_B );
+    // Convert to double and double the number of items for cuRand
+    CreateRandomData( "A", sizeA * 2, reinterpret_cast<double*>(m_A) );
+    CreateRandomData( "B", sizeB * 2, reinterpret_cast<double*>(m_B) );
 
     CUDA_RT_CALL( cudaDeviceSynchronize( ) );
 

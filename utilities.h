@@ -119,7 +119,7 @@ void CheckMemoryUsed( const int &num_devices ) {
 template<typename T>
 void CreateRandomData( const std::string &str, const int64_t &size, T *D ) {
 
-    const size_t size_bytes { sizeof( double ) * size };
+    const size_t size_bytes { sizeof( T ) * size };
 
     std::printf( "Number generation of %lu values (%s): %lu (bytes)\n", size, str.c_str( ), size_bytes );
 

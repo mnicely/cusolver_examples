@@ -28,7 +28,7 @@
 
 #include "utilities.h"
 
-#define VERIFY 0
+#define VERIFY 1
 
 template<typename T>
 void MultiGPU( const int &    num_devices,
@@ -329,13 +329,18 @@ int main( int argc, char *argv[] ) {
     data_type *m_B {};
     data_type *m_X {};
 
-    CUDA_RT_CALL( cudaMallocManaged( &m_A, sizeof( data_type ) * lda * m ) );
-    CUDA_RT_CALL( cudaMallocManaged( &m_B, sizeof( data_type ) * m ) );
-    CUDA_RT_CALL( cudaMallocManaged( &m_X, sizeof( data_type ) * m ) );
+    size_t sizeA { static_cast<size_t>(lda) * m };
+    size_t sizeB { static_cast<size_t>(m) };
+    size_t sizeX { static_cast<size_t>(m) };
 
-    // // Generate random numbers on the CPU
-    CreateRandomData( "A", static_cast<int64_t>(lda) * m, m_A );
-    CreateRandomData( "B", m, m_B );
+    CUDA_RT_CALL( cudaMallocManaged( &m_A, sizeof( data_type ) * sizeA ) );
+    CUDA_RT_CALL( cudaMallocManaged( &m_B, sizeof( data_type ) * sizeB ) );
+    CUDA_RT_CALL( cudaMallocManaged( &m_X, sizeof( data_type ) * sizeX ) );
+
+    // Generate random numbers on the GPU
+    // Convert to double and double the number of items for cuRand
+    CreateRandomData( "A", sizeA, m_A );
+    CreateRandomData( "B", sizeB, m_B );
 
     CUDA_RT_CALL( cudaDeviceSynchronize( ) );
 
