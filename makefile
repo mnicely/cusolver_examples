@@ -1,7 +1,7 @@
-NVCC	:=nvcc --cudart=static -ccbin g++
-CFLAGS	:=-O3 -std=c++11
+NVCC	:=nvcc --cudart=static -ccbin g++ -Xcompiler -fopenmp
+CFLAGS	:=-O3 -std=c++14
 
-INC_DIR	:=
+INC_DIR	:=-I$(HOME)/workStuff/thrust
 LIB_DIR	:=
 LIBS	:=-lcusolver -lcusolverMg -lcurand
 
@@ -16,7 +16,7 @@ MAGMA_LIBS   := -L$(MAGMADIR)/lib -lmagma
 
 SOURCES :=lu_decomposition_cusolver \
 			lu_decomposition_cusolvermg \
-			lu_decomposition_magma 
+			# lu_decomposition_magma 
 
 all: $(SOURCES)
 .PHONY: all

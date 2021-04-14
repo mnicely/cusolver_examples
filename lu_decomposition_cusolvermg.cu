@@ -28,7 +28,7 @@
 
 #include "utilities.h"
 
-#define VERIFY 1
+#define VERIFY 0
 
 template<typename T>
 void MultiGPU( const int &    num_devices,
@@ -39,11 +39,6 @@ void MultiGPU( const int &    num_devices,
                T *            A,
                T *            B,
                T *            X ) {
-
-    std::printf( "\ncuSolverMg: MultiGPU GETRF w/ %d GPUs\n", num_devices );
-
-    std::printf( "Initial memory usage\n" );
-    CheckMemoryUsed( num_devices );
 
     // Start timer
     cudaEvent_t startEvent { nullptr };
@@ -320,6 +315,8 @@ int main( int argc, char *argv[] ) {
 
     GetDeviceProperties( num_devices, device_list.data( ) );
 
+    std::printf( "\ncuSolverMg: MultiGPU GETRF w/ %d GPUs: N = %d\n\n", num_devices, m );
+
     std::printf( "Enable peer access\n" );
     EnablePeerAccess( num_devices );
 
@@ -332,17 +329,20 @@ int main( int argc, char *argv[] ) {
     data_type *m_B {};
     data_type *m_X {};
 
-    CUDA_RT_CALL( cudaMallocManaged( &m_A, sizeof( data_type ) * static_cast<int64_t>(lda) * m ) );
+    CUDA_RT_CALL( cudaMallocManaged( &m_A, sizeof( data_type ) * lda * m ) );
     CUDA_RT_CALL( cudaMallocManaged( &m_B, sizeof( data_type ) * m ) );
     CUDA_RT_CALL( cudaMallocManaged( &m_X, sizeof( data_type ) * m ) );
 
     // // Generate random numbers on the CPU
-    CreateRandomData( cudaCpuDeviceId, "A", static_cast<int64_t>(lda) * m, m_A );
-    CreateRandomData( cudaCpuDeviceId, "B", m, m_B );
+    CreateRandomData( "A", static_cast<int64_t>(lda) * m, m_A );
+    CreateRandomData( "B", m, m_B );
+
+    CUDA_RT_CALL( cudaDeviceSynchronize( ) );
 
     // Managed Memory
-    std::printf( "\nRun LU Decomposition\n" );
     for ( int i = 1; i < ( num_devices * 2 ); i *= 2 ) {
+        std::printf( "\n\n******************************************\n" );
+        std::printf( "Run LU Decomposition w/ %d GPUs\n", i );
         MultiGPU( i, device_list.data( ), m, lda, ldb, m_A, m_B, m_X );
     }
 

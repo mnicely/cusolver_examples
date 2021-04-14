@@ -43,6 +43,21 @@
 #endif  // CUDA_RT_CALL
 // *************** FOR ERROR CHECKING *******************
 
+
+/**************************************************/
+/* RANDOM NUMBERS GENERATION STRUCTS AND FUNCTION */
+/**************************************************/
+template<typename T>
+struct Rand {
+    std::default_random_engine gen;
+    std::normal_distribution<T> dist;
+    Rand() : gen{}, dist(100.0, 50.0) {}
+
+    __host__ T operator( )(const T& VecElem) { return (dist(gen)); }
+};
+
+
+
 constexpr double tolerance { 1e-6 };
 
 template<typename T>
@@ -102,24 +117,17 @@ void CheckMemoryUsed( const int &num_devices ) {
 }
 
 template<typename T>
-void CreateRandomData( const int &device, const std::string &str, const int64_t &size, T *D ) {
+void CreateRandomData( const std::string &str, const int64_t &size, T *D ) {
 
-    const size_t size_bytes { sizeof( T ) * size };
-    CUDA_RT_CALL( cudaMemPrefetchAsync( D, size_bytes, device, NULL ) );
+    const size_t size_bytes { sizeof( double ) * size };
 
     std::printf( "Number generation of %lu values (%s): %lu (bytes)\n", size, str.c_str( ), size_bytes );
 
     curandGenerator_t gen;
-    if ( device < 0 ) {
-        CUDA_RT_CALL( curandCreateGeneratorHost( &gen, CURAND_RNG_PSEUDO_DEFAULT ) );
-    } else {
-        CUDA_RT_CALL( curandCreateGenerator( &gen, CURAND_RNG_PSEUDO_DEFAULT ) );
-    }
-
+    CUDA_RT_CALL( curandCreateGenerator( &gen, CURAND_RNG_PSEUDO_DEFAULT ) );
     CUDA_RT_CALL( curandSetPseudoRandomGeneratorSeed( gen, 1234ULL ) );
     CUDA_RT_CALL( curandGenerateNormalDouble( gen, D, size, 100.0, 50.0 ) );
-
-    CUDA_RT_CALL( cudaMemAdvise( D, size_bytes, cudaMemAdviseSetPreferredLocation, device ) );
+    CUDA_RT_CALL( cudaMemPrefetchAsync( D, size_bytes, cudaCpuDeviceId, NULL ) );
 }
 
 /* compute |x|_inf */

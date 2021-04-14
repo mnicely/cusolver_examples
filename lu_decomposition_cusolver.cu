@@ -28,14 +28,12 @@
 
 #include "utilities.h"
 
-#define VERIFY 0
+#define VERIFY 1
 
 constexpr int pivot_on { 1 };
 
-template<typename T, typename U>
-void SingleGPUManaged( const int &device, const U &N, const U &lda, const U &ldb, T *A, T *B ) {
-
-    std::printf( "\ncuSolver: SingleGPUManaged GETRF\n" );
+template<typename T>
+void SingleGPUManaged( const int &device, const int &N, const int &lda, const int &ldb, T *A, T *B ) {
 
     size_t sizeBytesA { sizeof( T ) * lda * N };
     size_t sizeBytesB { sizeof( T ) * N };
@@ -44,15 +42,21 @@ void SingleGPUManaged( const int &device, const U &N, const U &lda, const U &ldb
     T *B_input {};
     T *A_input {};
 
+    std::printf("Allocating space for verification\n");
     CUDA_RT_CALL( cudaMallocManaged( &A_input, sizeBytesA ) );
     CUDA_RT_CALL( cudaMallocManaged( &B_input, sizeBytesB ) );
 
     CUDA_RT_CALL( cudaMemPrefetchAsync( A_input, sizeBytesA, cudaCpuDeviceId, NULL ) );
     CUDA_RT_CALL( cudaMemPrefetchAsync( B_input, sizeBytesB, cudaCpuDeviceId, NULL ) );
 
+    std::printf("Copy A to A_input: Needed for verification\n");
     CUDA_RT_CALL( cudaMemcpy( A_input, A, sizeBytesA, cudaMemcpyDeviceToHost ) );
+    std::printf("Copy B to B_input: Needed for verification\n");
     CUDA_RT_CALL( cudaMemcpy( B_input, B, sizeBytesB, cudaMemcpyDeviceToHost ) );
 #endif
+
+    CUDA_RT_CALL( cudaMemPrefetchAsync( A, sizeBytesA, device, NULL ) );
+    CUDA_RT_CALL( cudaMemPrefetchAsync( B, sizeBytesB, device, NULL ) );
 
     // Start timer
     cudaEvent_t startEvent { nullptr };
@@ -81,10 +85,10 @@ void SingleGPUManaged( const int &device, const U &N, const U &lda, const U &ldb
     int *d_info { nullptr }; /* error info */
     CUDA_RT_CALL( cudaMallocManaged( &d_info, sizeof( int ) ) );
 
-    U *d_Ipiv { nullptr }; /* pivoting sequence */
+    int64_t *d_Ipiv { nullptr }; /* pivoting sequence */
     if ( pivot_on ) {
-        CUDA_RT_CALL( cudaMallocManaged( &d_Ipiv, sizeof( U ) * N ) );
-        CUDA_RT_CALL( cudaMemPrefetchAsync( d_Ipiv, sizeof( U ) * N, device, stream ) );
+        CUDA_RT_CALL( cudaMallocManaged( &d_Ipiv, sizeof( int64_t ) * N ) );
+        CUDA_RT_CALL( cudaMemPrefetchAsync( d_Ipiv, sizeof( int64_t ) * N, device, stream ) );
     }
 
     void *bufferOnDevice { nullptr };
@@ -131,11 +135,11 @@ void SingleGPUManaged( const int &device, const U &N, const U &lda, const U &ldb
     if ( pivot_on ) {
         CUDA_RT_CALL( cusolverDnXgetrf( cusolverH,
                                         NULL,
-                                        N,
-                                        N,
+                                        static_cast<int64_t>(N),
+                                            static_cast<int64_t>(N),
                                         CUDA_R_64F,
                                         A,
-                                        lda,
+                                        static_cast<int64_t>(lda),
                                         d_Ipiv,
                                         CUDA_R_64F,
                                         bufferOnDevice,
@@ -146,11 +150,11 @@ void SingleGPUManaged( const int &device, const U &N, const U &lda, const U &ldb
     } else {
         CUDA_RT_CALL( cusolverDnXgetrf( cusolverH,
                                         NULL,
-                                        N,
-                                        N,
+                                        static_cast<int64_t>(N),
+                                            static_cast<int64_t>(N),
                                         CUDA_R_64F,
                                         A,
-                                        lda,
+                                        static_cast<int64_t>(lda),
                                         nullptr,
                                         CUDA_R_64F,
                                         bufferOnDevice,
@@ -168,7 +172,7 @@ void SingleGPUManaged( const int &device, const U &N, const U &lda, const U &ldb
     }
 
     CUDA_RT_CALL( cudaMemAdvise( A, sizeBytesA, cudaMemAdviseSetReadMostly, device ) );
-    CUDA_RT_CALL( cudaMemAdvise( d_Ipiv, sizeof( U ) * N, cudaMemAdviseSetReadMostly, device ) );
+    CUDA_RT_CALL( cudaMemAdvise( d_Ipiv, sizeof( int64_t ) * N, cudaMemAdviseSetReadMostly, device ) );
 
     /*
      * step 5: solve A*X = B
@@ -178,29 +182,29 @@ void SingleGPUManaged( const int &device, const U &N, const U &lda, const U &ldb
         CUDA_RT_CALL( cusolverDnXgetrs( cusolverH,
                                         NULL,
                                         CUBLAS_OP_N,
-                                        N,
+                                        static_cast<int64_t>(N),
                                         1, /* nrhs */
                                         CUDA_R_64F,
                                         A,
-                                        lda,
+                                        static_cast<int64_t>(lda),
                                         d_Ipiv,
                                         CUDA_R_64F,
                                         B,
-                                        ldb,
+                                        static_cast<int64_t>(ldb),
                                         d_info ) );
     } else {
         CUDA_RT_CALL( cusolverDnXgetrs( cusolverH,
                                         NULL,
                                         CUBLAS_OP_N,
-                                        N,
+                                        static_cast<int64_t>(N),
                                         1, /* nrhs */
                                         CUDA_R_64F,
                                         A,
-                                        lda,
+                                        static_cast<int64_t>(lda),
                                         nullptr,
                                         CUDA_R_64F,
                                         B,
-                                        ldb,
+                                        static_cast<int64_t>(ldb),
                                         d_info ) );
     }
 
@@ -243,35 +247,37 @@ void SingleGPUManaged( const int &device, const U &N, const U &lda, const U &ldb
 
 int main( int argc, char *argv[] ) {
 
-    int64_t m = 512;
+    int m = 512;
     if ( argc > 1 )
         m = std::atoi( argv[1] );
 
     int device = -1;
     CUDA_RT_CALL( cudaGetDevice( &device ) );
 
-    const int64_t lda { m };
-    const int64_t ldb { m };
+    std::printf( "\ncuSolver: SingleGPUManaged GETRF: N = %d\n\n", m );
 
-    double *m_A {};
-    double *m_B {};
+    const int lda { m };
+    const int ldb { m };
 
-    CUDA_RT_CALL( cudaMallocManaged( &m_A, sizeof( double ) * lda * m ) );
-    CUDA_RT_CALL( cudaMallocManaged( &m_B, sizeof( double ) * m ) );
+    using data_type = double;
 
-    CUDA_RT_CALL( cudaMemPrefetchAsync( m_A, sizeof( double ) * lda * m, device, NULL ) );
-    CUDA_RT_CALL( cudaMemPrefetchAsync( m_B, sizeof( double ) * m, device, NULL ) );
+    data_type *m_A {};
+    data_type *m_B {};
+
+    CUDA_RT_CALL( cudaMallocManaged( &m_A, sizeof( data_type ) * lda * m ) );
+    CUDA_RT_CALL( cudaMallocManaged( &m_B, sizeof( data_type ) * m ) );
 
     // Generate random numbers on the GPU
-    CreateRandomData( device, "A", m * lda, m_A );
-    CreateRandomData( device, "B", m, m_B );
+    CreateRandomData( "A", static_cast<int64_t>(lda) * m, m_A );
+    CreateRandomData( "B", m, m_B );
 
-    // Managed Memory
+    CUDA_RT_CALL( cudaDeviceSynchronize( ) );
+
+    // // Managed Memory
     std::printf( "Run LU Decomposition\n" );
     SingleGPUManaged( device, m, lda, ldb, m_A, m_B );
 
-    CUDA_RT_CALL( cudaFree( m_A ) );
-    CUDA_RT_CALL( cudaFree( m_B ) );
+
 
     return ( EXIT_SUCCESS );
 }
