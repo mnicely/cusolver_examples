@@ -28,7 +28,7 @@
 
 #include "utilities.h"
 
-#define VERIFY 1
+#define VERIFY 0
 
 constexpr int pivot_on { 1 };
 
@@ -139,7 +139,7 @@ void SingleGPUManaged( const int &device, const int &N, const int &lda, const in
     /* step 4: LU factorization */
     if ( pivot_on ) {
         CUDA_RT_CALL( cusolverDnXgetrf( cusolverH,
-                                        NULL,
+                                        params,
                                         static_cast<int64_t>(N),
                                             static_cast<int64_t>(N),
                                         CUDA_R_64F,
@@ -154,7 +154,7 @@ void SingleGPUManaged( const int &device, const int &N, const int &lda, const in
                                         d_info ) );
     } else {
         CUDA_RT_CALL( cusolverDnXgetrf( cusolverH,
-                                        NULL,
+                                        params,
                                         static_cast<int64_t>(N),
                                             static_cast<int64_t>(N),
                                         CUDA_R_64F,
