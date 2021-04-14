@@ -29,7 +29,7 @@
 
 #include "utilities.h"
 
-#define VERIFY 1
+#define VERIFY 0
 
 constexpr int pivot_on { 1 };
 
@@ -287,7 +287,7 @@ int main( int argc, char *argv[] ) {
 
     CUDA_RT_CALL( cudaDeviceSynchronize( ) );
 
-    // // Managed Memory
+    // Managed Memory
     std::printf( "Run LU Decomposition\n" );
     SingleGPUManaged( device, m, lda, ldb, m_A, m_B );
 

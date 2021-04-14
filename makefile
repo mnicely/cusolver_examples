@@ -16,7 +16,7 @@ MAGMA_LIBS   := -L$(MAGMADIR)/lib -lmagma
 
 SOURCES :=lu_decomposition_cusolver \
 			lu_decomposition_cusolvermg \
-			# lu_decomposition_magma 
+			lu_decomposition_magma 
 
 all: $(SOURCES)
 .PHONY: all

@@ -36,12 +36,10 @@ constexpr int pivot_on { 1 };
 template<typename T, typename U>
 void SingleGPUManaged( const int &device, const U &N, const U &lda, const U &ldb, T *A, T *B ) {
 
-    std::printf( "\ncuSolver: SingleGPUManaged GETRF\n" );
-
-#if VERIFY
     size_t sizeBytesA { sizeof( T ) * lda * N };
     size_t sizeBytesB { sizeof( T ) * N };
 
+#if VERIFY
     T *B_input {};
     T *A_input {};
 
@@ -54,6 +52,9 @@ void SingleGPUManaged( const int &device, const U &N, const U &lda, const U &ldb
     CUDA_RT_CALL( cudaMemcpy( A_input, A, sizeBytesA, cudaMemcpyDeviceToHost ) );
     CUDA_RT_CALL( cudaMemcpy( B_input, B, sizeBytesB, cudaMemcpyDeviceToHost ) );
 #endif
+
+    CUDA_RT_CALL( cudaMemPrefetchAsync( A, sizeBytesA, device, NULL ) );
+    CUDA_RT_CALL( cudaMemPrefetchAsync( B, sizeBytesB, device, NULL ) );
 
     // Start timer
     cudaEvent_t startEvent { nullptr };
@@ -76,8 +77,6 @@ void SingleGPUManaged( const int &device, const U &N, const U &lda, const U &ldb
     CUDA_RT_CALL( cudaStreamCreate( &stream ) );
 
     magma_init( );
-    magma_queue_t queue;
-    magma_queue_create_from_cuda( device, stream, NULL, NULL, &queue );
 
     /* step 2: copy A to device */
     int *d_info { nullptr }; /* error info */
@@ -100,13 +99,13 @@ void SingleGPUManaged( const int &device, const U &N, const U &lda, const U &ldb
 
     /* step 4: LU factorization */
     if ( pivot_on ) {
-        CUDA_RT_CALL( magma_dgetrf_gpu( N, N, A, lda, d_Ipiv, d_info ) );
+        CUDA_RT_CALL( magma_zgetrf_gpu( N, N, A, lda, d_Ipiv, d_info ) );
     } else {
-        CUDA_RT_CALL( magma_dgetrf_nopiv_gpu( N, N, A, lda, d_info ) );
+        CUDA_RT_CALL( magma_zgetrf_nopiv_gpu( N, N, A, lda, d_info ) );
     }
 
     // Must be here to retrieve d_info
-    magma_queue_sync( queue );
+    CUDA_RT_CALL( cudaStreamSynchronize( stream ) );
 
     if ( *d_info ) {
         throw std::runtime_error( std::to_string( -*d_info ) + "-th parameter is wrong (cusolverDnDgetrf) \n" );
@@ -117,7 +116,7 @@ void SingleGPUManaged( const int &device, const U &N, const U &lda, const U &ldb
      */
 
     if ( pivot_on ) {
-        CUDA_RT_CALL( magma_dgetrs_gpu( MagmaNoTrans,
+        CUDA_RT_CALL( magma_zgetrs_gpu( MagmaNoTrans,
                                         N,
                                         1, /* nrhs */
                                         A,
@@ -127,7 +126,7 @@ void SingleGPUManaged( const int &device, const U &N, const U &lda, const U &ldb
                                         ldb,
                                         d_info ) );
     } else {
-        CUDA_RT_CALL( magma_dgetrs_nopiv_gpu( MagmaNoTrans,
+        CUDA_RT_CALL( magma_zgetrs_nopiv_gpu( MagmaNoTrans,
                                               N,
                                               1, /* nrhs */
                                               A,
@@ -138,7 +137,7 @@ void SingleGPUManaged( const int &device, const U &N, const U &lda, const U &ldb
     }
 
     // Must be here to retrieve d_info
-    magma_queue_sync( queue );
+    CUDA_RT_CALL( cudaStreamSynchronize( stream ) );
 
     if ( *d_info ) {
         throw std::runtime_error( std::to_string( -*d_info ) + "-th parameter is wrong (cusolverDnDgetrs) \n" );
@@ -155,14 +154,16 @@ void SingleGPUManaged( const int &device, const U &N, const U &lda, const U &ldb
     CUDA_RT_CALL( cudaMemPrefetchAsync( B, sizeBytesB, cudaCpuDeviceId, stream ) );
 
     // Calculate Residual Error
-    CalculateResidualError( N, lda, A_input, B_input, B );
+    CalculateResidualError( N,
+        lda,
+        reinterpret_cast<double *>( A_input ),
+        reinterpret_cast<double *>( B_input ),
+        reinterpret_cast<double *>( B ) );
 #endif
 
     CUDA_RT_CALL( cudaFree( d_Ipiv ) );
     CUDA_RT_CALL( cudaFree( d_info ) );
     CUDA_RT_CALL( cudaStreamDestroy( stream ) );
-    magma_queue_destroy( queue );
-
     CUDA_RT_CALL( cudaEventDestroy( startEvent ) );
     CUDA_RT_CALL( cudaEventDestroy( stopEvent ) );
 #if VERIFY
@@ -183,18 +184,20 @@ int main( int argc, char *argv[] ) {
     const magma_int_t lda { m };
     const magma_int_t ldb { m };
 
-    double *m_A {};
-    double *m_B {};
+    using data_type = cuDoubleComplex;
 
-    CUDA_RT_CALL( cudaMallocManaged( &m_A, sizeof( double ) * lda * m ) );
-    CUDA_RT_CALL( cudaMallocManaged( &m_B, sizeof( double ) * m ) );
+    data_type *m_A {};
+    data_type *m_B {};
 
-    CUDA_RT_CALL( cudaMemPrefetchAsync( m_A, sizeof( double ) * lda * m, device, NULL ) );
-    CUDA_RT_CALL( cudaMemPrefetchAsync( m_B, sizeof( double ) * m, device, NULL ) );
+    size_t sizeA { static_cast<size_t>( lda ) * m };
+    size_t sizeB { static_cast<size_t>( m ) };
+
+    CUDA_RT_CALL( cudaMallocManaged( &m_A, sizeof( data_type ) * sizeA ) );
+    CUDA_RT_CALL( cudaMallocManaged( &m_B, sizeof( data_type ) * sizeB ) );
 
     // Generate random numbers on the GPU
-    CreateRandomData( device, "A", m * lda, m_A );
-    CreateRandomData( device, "B", m, m_B );
+    CreateRandomData( "A", sizeA * 2, reinterpret_cast<double *>( m_A ) );
+    CreateRandomData( "B", sizeB * 2, reinterpret_cast<double *>( m_B ) );
 
     // Managed Memory
     std::printf( "Run LU Decomposition\n" );

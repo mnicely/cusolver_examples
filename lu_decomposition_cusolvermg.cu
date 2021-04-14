@@ -28,7 +28,7 @@
 
 #include "utilities.h"
 
-#define VERIFY 1
+#define VERIFY 0
 
 template<typename T>
 void MultiGPU( const int &num_devices,
