@@ -118,6 +118,11 @@ void SingleGPUManaged( const int &device, const int &N, const int &lda, const in
         assert( NULL != bufferOnHost );
     }
 
+    // Create advanced params
+    cusolverDnParams_t params;
+    CUDA_RT_CALL( cusolverDnCreateParams( &params ) );
+    CUDA_RT_CALL( cusolverDnSetAdvOptions( params, CUSOLVERDN_GETRF, CUSOLVER_ALG_0 ) );
+
     // Check GPU memory used on single GPU
     CheckMemoryUsed( 1 );
 
