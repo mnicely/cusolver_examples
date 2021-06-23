@@ -1,7 +1,7 @@
 NVCC	:=nvcc --cudart=static -ccbin g++ -Xcompiler -fopenmp
 CFLAGS	:=-O3 -std=c++14
 
-INC_DIR	:=-I$(HOME)/workStuff/thrust
+INC_DIR	:=-
 LIB_DIR	:=
 LIBS	:=-lcusolver -lcusolverMg -lcurand
 
@@ -9,9 +9,9 @@ ARCHES :=-gencode arch=compute_70,code=\"compute_70,sm_70\" \
 		-gencode arch=compute_75,code=\"compute_75,sm_75\" \
 		-gencode arch=compute_80,code=\"compute_80,sm_80\"
 
-MAGMADIR     := $(HOME)/workStuff/magma
-MAGMALIB	 := -L$(MAGMADIR)/lib
-MAGMAINC	 := -I$(MAGMADIR)/include
+MAGMADIR     := /usr/local/magma
+MAGMALIB     := -L$(MAGMADIR)/lib
+MAGMAINC     := -I$(MAGMADIR)/include
 MAGMA_LIBS   := -L$(MAGMADIR)/lib -lmagma
 
 SOURCES :=lu_decomposition_cusolver \

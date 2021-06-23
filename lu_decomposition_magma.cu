@@ -131,16 +131,19 @@ int main( int argc, char *argv[] ) {
 
     magma_int_t m {};
     magma_int_t loops {};
-    if ( argc < 3 ) {
+    magma_int_t ngpu {};
+
+    if ( argc < 4 ) {
         m     = 512;
         loops = 5;
+        ngpu  = 1;
     } else {
         m     = std::atoi( argv[1] );
         loops = std::atoi( argv[2] );
+        ngpu  = std::atoi( argv[3] );
     }
 
-    magma_int_t ngpu = magma_num_gpus( );
-    std::printf( "Magma sees %llu GPUs\n", ngpu );
+    std::printf( "\nMAGMA: GETRF: N = %d\n\n", m );
 
     const magma_int_t lda { m };
     const magma_int_t ldb { m };
@@ -178,15 +181,13 @@ int main( int argc, char *argv[] ) {
     CUDA_RT_CALL( cudaFree( temp_B ) );
 
     // Managed Memory
-    for ( int i = 1; i < ( ngpu * 2 ); i *= 2 ) {
-        std::printf( "\n\n******************************************\n" );
-        std::printf( "Run Warmup w/ %d GPUs\n", i );
-        SingleGPUManaged( ngpu, 1, m, lda, ldb, m_A, m_B );
+    std::printf( "\n\n******************************************\n" );
+    std::printf( "Run Warmup w/ %llu GPUs\n", ngpu );
+    SingleGPUManaged( ngpu, 1, m, lda, ldb, m_A, m_B );
 
-        std::printf( "\n\n******************************************\n" );
-        std::printf( "Run LU Decomposition w/ %d GPUs\n", i );
-        SingleGPUManaged( ngpu, loops, m, lda, ldb, m_A, m_B );
-    }
+    std::printf( "\n\n******************************************\n" );
+    std::printf( "Run LU Decomposition w/ %llu GPUs\n", ngpu );
+    SingleGPUManaged( ngpu, loops, m, lda, ldb, m_A, m_B );
 
     if ( MAGMA_SUCCESS != magma_free_pinned( m_A ) ) {
         throw std::runtime_error( "Error freeing A\n" );

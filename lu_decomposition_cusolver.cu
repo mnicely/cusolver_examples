@@ -224,7 +224,7 @@ int main( int argc, char *argv[] ) {
     int device = -1;
     CUDA_RT_CALL( cudaGetDevice( &device ) );
 
-    std::printf( "\ncuSolver: SingleGPUManaged GETRF: N = %d\n\n", m );
+    std::printf( "\ncuSOLVER: SingleGPUManaged GETRF: N = %d\n\n", m );
 
     const int lda { m };
     const int ldb { m };

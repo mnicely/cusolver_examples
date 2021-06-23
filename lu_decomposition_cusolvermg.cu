@@ -290,26 +290,29 @@ int main( int argc, char *argv[] ) {
 
     int m {};
     int loops {};
+    int ngpu {};
 
-    if ( argc < 3 ) {
+    if ( argc < 4 ) {
         m     = 512;
         loops = 5;
+        ngpu  = 1;
     } else {
         m     = std::atoi( argv[1] );
         loops = std::atoi( argv[2] );
+        ngpu  = std::atoi( argv[3] );
     }
 
     // Setup for MultiGPU version
-    int num_devices {};
-    CUDA_RT_CALL( cudaGetDeviceCount( &num_devices ) );
-    std::vector<int> device_list( num_devices );
+    std::vector<int> device_list( ngpu );
 
-    GetDeviceProperties( num_devices, device_list.data( ) );
+    std::printf( "\ncuSOLVERMg: MultiGPU GETRF: N = %d\n\n", m );
 
-    std::printf( "\ncuSolverMg: MultiGPU GETRF w/ %d GPUs: N = %d\n\n", num_devices, m );
+    GetDeviceProperties( ngpu, device_list.data( ) );
+
+    std::printf( "\ncuSolverMg: MultiGPU GETRF w/ %d GPUs: N = %d\n\n", ngpu, m );
 
     std::printf( "Enable peer access\n" );
-    EnablePeerAccess( num_devices );
+    EnablePeerAccess( ngpu );
 
     const int lda { m };
     const int ldb { m };
@@ -336,15 +339,13 @@ int main( int argc, char *argv[] ) {
     CUDA_RT_CALL( cudaDeviceSynchronize( ) );
 
     // Managed Memory
-    for ( int i = 1; i < ( num_devices * 2 ); i *= 2 ) {
-        std::printf( "\n\n******************************************\n" );
-        std::printf( "Run Warmup\n" );
-        MultiGPU( i, device_list.data( ), 1, m, lda, ldb, m_A, m_B, m_X );
+    std::printf( "\n\n******************************************\n" );
+    std::printf( "Run Warmup w/ %d GPUs\n", ngpu );
+    MultiGPU( ngpu, device_list.data( ), 1, m, lda, ldb, m_A, m_B, m_X );
 
-        std::printf( "\n\n******************************************\n" );
-        std::printf( "Run LU Decomposition w/ %d GPUs\n", i );
-        MultiGPU( i, device_list.data( ), loops, m, lda, ldb, m_A, m_B, m_X );
-    }
+    std::printf( "\n\n******************************************\n" );
+    std::printf( "Run LU Decomposition w/ %d GPUs\n", ngpu );
+    MultiGPU( ngpu, device_list.data( ), loops, m, lda, ldb, m_A, m_B, m_X );
 
     CUDA_RT_CALL( cudaFree( m_A ) );
     CUDA_RT_CALL( cudaFree( m_B ) );
