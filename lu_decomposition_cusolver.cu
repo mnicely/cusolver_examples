@@ -31,10 +31,15 @@
 
 #define VERIFY 0
 
-constexpr int pivot_on { 1 };
-
 template<typename T>
-void SingleGPUManaged( const int &device, const int &N, const int &lda, const int &ldb, T *A, T *B ) {
+void SingleGPUManaged( const int &device,
+                       const int &loops,
+                       const int &algo,
+                       const int &N,
+                       const int &lda,
+                       const int &ldb,
+                       T *        A,
+                       T *        B ) {
 
     size_t sizeBytesA { sizeof( T ) * lda * N };
     size_t sizeBytesB { sizeof( T ) * N };
@@ -67,11 +72,7 @@ void SingleGPUManaged( const int &device, const int &N, const int &lda, const in
     CUDA_RT_CALL( cudaEventCreate( &startEvent, cudaEventBlockingSync ) );
     CUDA_RT_CALL( cudaEventCreate( &stopEvent, cudaEventBlockingSync ) );
 
-    if ( pivot_on ) {
-        std::printf( "Pivot is on : compute P*A = L*U\n" );
-    } else {
-        std::printf( "Pivot is off: compute A = L*U (not numerically stable)\n" );
-    }
+    std::printf( "Pivot is on : compute P*A = L*U\n" );
 
     /* step 1: create cusolver handle, bind a stream */
     cusolverDnHandle_t cusolverH { nullptr };
@@ -87,10 +88,8 @@ void SingleGPUManaged( const int &device, const int &N, const int &lda, const in
     CUDA_RT_CALL( cudaMallocManaged( &d_info, sizeof( int ) ) );
 
     int64_t *d_Ipiv { nullptr }; /* pivoting sequence */
-    if ( pivot_on ) {
-        CUDA_RT_CALL( cudaMallocManaged( &d_Ipiv, sizeof( int64_t ) * N ) );
-        CUDA_RT_CALL( cudaMemPrefetchAsync( d_Ipiv, sizeof( int64_t ) * N, device, stream ) );
-    }
+    CUDA_RT_CALL( cudaMallocManaged( &d_Ipiv, sizeof( int64_t ) * N ) );
+    CUDA_RT_CALL( cudaMemPrefetchAsync( d_Ipiv, sizeof( int64_t ) * N, device, stream ) );
 
     void *bufferOnDevice { nullptr };
     void *bufferOnHost { nullptr };
@@ -98,7 +97,6 @@ void SingleGPUManaged( const int &device, const int &N, const int &lda, const in
     size_t workspaceInBytesOnDevice {};
     size_t workspaceInBytesOnHost {};
 
-    // CUDA_RT_CALL( cusolverDnDgetrf_bufferSize( cusolverH, N, N, A, lda, &lwork ) );
     CUDA_RT_CALL( cusolverDnXgetrf_bufferSize(
         cusolverH, NULL, N, N, CUDA_C_64F, A, lda, CUDA_C_64F, &workspaceInBytesOnDevice, &workspaceInBytesOnHost ) );
 
@@ -122,7 +120,13 @@ void SingleGPUManaged( const int &device, const int &N, const int &lda, const in
     // Create advanced params
     cusolverDnParams_t params;
     CUDA_RT_CALL( cusolverDnCreateParams( &params ) );
-    CUDA_RT_CALL( cusolverDnSetAdvOptions( params, CUSOLVERDN_GETRF, CUSOLVER_ALG_0 ) );
+    if ( algo == 0 ) {
+        std::printf( "Using New Algo\n" );
+        CUDA_RT_CALL( cusolverDnSetAdvOptions( params, CUSOLVERDN_GETRF, CUSOLVER_ALG_0 ) );
+    } else {
+        std::printf( "Using Legacy Algo\n" );
+        CUDA_RT_CALL( cusolverDnSetAdvOptions( params, CUSOLVERDN_GETRF, CUSOLVER_ALG_1 ) );
+    }
 
     // Check GPU memory used on single GPU
     CheckMemoryUsed( 1 );
@@ -133,12 +137,13 @@ void SingleGPUManaged( const int &device, const int &N, const int &lda, const in
     CUDA_RT_CALL( cudaMemAdvise( B, sizeBytesB, cudaMemAdviseSetPreferredLocation, device ) );
     CUDA_RT_CALL( cudaMemAdvise( B, sizeBytesB, cudaMemAdviseSetAccessedBy, device ) );
 
+    std::printf( "\nRunning GETRF\n" );
+
     CUDA_RT_CALL( cudaEventRecord( startEvent ) );
 
-    std::printf( "\nSolve A*X = B: GETRF and GETRS\n" );
+    for ( int i = 0; i < loops; i++ ) {
 
-    /* step 4: LU factorization */
-    if ( pivot_on ) {
+        /* step 4: LU factorization */
         CUDA_RT_CALL( cusolverDnXgetrf( cusolverH,
                                         params,
                                         static_cast<int64_t>( N ),
@@ -153,72 +158,13 @@ void SingleGPUManaged( const int &device, const int &N, const int &lda, const in
                                         bufferOnHost,
                                         workspaceInBytesOnHost,
                                         d_info ) );
-    } else {
-        CUDA_RT_CALL( cusolverDnXgetrf( cusolverH,
-                                        params,
-                                        static_cast<int64_t>( N ),
-                                        static_cast<int64_t>( N ),
-                                        CUDA_C_64F,
-                                        A,
-                                        static_cast<int64_t>( lda ),
-                                        nullptr,
-                                        CUDA_C_64F,
-                                        bufferOnDevice,
-                                        workspaceInBytesOnDevice,
-                                        bufferOnHost,
-                                        workspaceInBytesOnHost,
-                                        d_info ) );
-    }
 
-    // Must be here to retrieve d_info
-    CUDA_RT_CALL( cudaStreamSynchronize( stream ) );
+        // Must be here to retrieve d_info
+        CUDA_RT_CALL( cudaStreamSynchronize( stream ) );
 
-    if ( *d_info ) {
-        throw std::runtime_error( std::to_string( -*d_info ) + "-th parameter is wrong (cusolverDnDgetrf) \n" );
-    }
-
-    CUDA_RT_CALL( cudaMemAdvise( A, sizeBytesA, cudaMemAdviseSetReadMostly, device ) );
-    CUDA_RT_CALL( cudaMemAdvise( d_Ipiv, sizeof( int64_t ) * N, cudaMemAdviseSetReadMostly, device ) );
-
-    /*
-     * step 5: solve A*X = B
-     */
-
-    if ( pivot_on ) {
-        CUDA_RT_CALL( cusolverDnXgetrs( cusolverH,
-                                        NULL,
-                                        CUBLAS_OP_N,
-                                        static_cast<int64_t>( N ),
-                                        1, /* nrhs */
-                                        CUDA_C_64F,
-                                        A,
-                                        static_cast<int64_t>( lda ),
-                                        d_Ipiv,
-                                        CUDA_C_64F,
-                                        B,
-                                        static_cast<int64_t>( ldb ),
-                                        d_info ) );
-    } else {
-        CUDA_RT_CALL( cusolverDnXgetrs( cusolverH,
-                                        NULL,
-                                        CUBLAS_OP_N,
-                                        static_cast<int64_t>( N ),
-                                        1, /* nrhs */
-                                        CUDA_C_64F,
-                                        A,
-                                        static_cast<int64_t>( lda ),
-                                        nullptr,
-                                        CUDA_C_64F,
-                                        B,
-                                        static_cast<int64_t>( ldb ),
-                                        d_info ) );
-    }
-
-    // Must be here to retrieve d_info
-    CUDA_RT_CALL( cudaStreamSynchronize( stream ) );
-
-    if ( *d_info ) {
-        throw std::runtime_error( std::to_string( -*d_info ) + "-th parameter is wrong (cusolverDnDgetrs) \n" );
+        if ( *d_info ) {
+            throw std::runtime_error( std::to_string( -*d_info ) + "-th parameter is wrong (cusolverDnDgetrf) \n" );
+        }
     }
 
     // Stop timer
@@ -226,8 +172,10 @@ void SingleGPUManaged( const int &device, const int &N, const int &lda, const in
     CUDA_RT_CALL( cudaEventSynchronize( stopEvent ) );
 
     CUDA_RT_CALL( cudaEventElapsedTime( &elapsed_gpu_ms, startEvent, stopEvent ) );
-    std::printf( "\nRuntime = %0.2f ms\n\n", elapsed_gpu_ms );
-
+    double avg { elapsed_gpu_ms / loops };
+    double flops { FLOPS_ZGETRF( N, N ) };
+    double perf { 1e-9 * flops / avg };
+    std::printf( "\nRuntime = %0.2f ms (avg over %d runs) : @ %0.2f GFLOPs\n\n", avg, loops, perf );
 #if VERIFY
     CUDA_RT_CALL( cudaMemPrefetchAsync( B, sizeBytesB, cudaCpuDeviceId, stream ) );
 
@@ -257,9 +205,21 @@ void SingleGPUManaged( const int &device, const int &N, const int &lda, const in
 
 int main( int argc, char *argv[] ) {
 
-    int m = 512;
-    if ( argc > 1 )
-        m = std::atoi( argv[1] );
+    int m {};
+    int loops {};
+    int algo {};
+
+    if ( argc < 4 ) {
+        m     = 512;
+        loops = 5;
+        algo  = 0;
+    } else {
+        m     = std::atoi( argv[1] );
+        loops = std::atoi( argv[2] );
+        algo  = std::atoi( argv[3] );
+        if ( algo > 1 || algo < 0 )
+            algo = 1;
+    }
 
     int device = -1;
     CUDA_RT_CALL( cudaGetDevice( &device ) );
@@ -288,8 +248,13 @@ int main( int argc, char *argv[] ) {
     CUDA_RT_CALL( cudaDeviceSynchronize( ) );
 
     // Managed Memory
+    std::printf( "\n\n******************************************\n" );
+    std::printf( "Run Warmup\n" );
+    SingleGPUManaged( device, 1, algo, m, lda, ldb, m_A, m_B );
+
+    std::printf( "\n\n******************************************\n" );
     std::printf( "Run LU Decomposition\n" );
-    SingleGPUManaged( device, m, lda, ldb, m_A, m_B );
+    SingleGPUManaged( device, loops, algo, m, lda, ldb, m_A, m_B );
 
     return ( EXIT_SUCCESS );
 }

@@ -33,6 +33,7 @@
 template<typename T>
 void MultiGPU( const int &num_devices,
                int *      device_list,
+               const int &loops,
                const int &N,
                const int &lda,
                const int &ldb,
@@ -80,7 +81,7 @@ void MultiGPU( const int &num_devices,
                                               N,   /* number of columns of (global) A */
                                               N,   /* number or rows in a tile */
                                               T_A, /* number of columns in a tile */
-                                              CUDA_R_64F,
+                                              CUDA_C_64F,
                                               gridA ) );
 
     /* (global) B is N-by-1 */
@@ -89,7 +90,7 @@ void MultiGPU( const int &num_devices,
                                               1,   /* number of columns of (global) B */
                                               N,   /* number or rows in a tile */
                                               T_B, /* number of columns in a tile */
-                                              CUDA_R_64F,
+                                              CUDA_C_64F,
                                               gridB ) );
 
     std::printf( "\nAllocate distributed matrices A, B and IPIV\n" );
@@ -167,7 +168,7 @@ void MultiGPU( const int &num_devices,
                                               JA, /* base-1 */
                                               descrA,
                                               array_d_IPIV.data( ),
-                                              CUDA_R_64F,
+                                              CUDA_C_64F,
                                               &lwork_getrf ) );
 
     CUDA_RT_CALL( cusolverMgGetrs_bufferSize( cusolverMgH,
@@ -183,7 +184,7 @@ void MultiGPU( const int &num_devices,
                                               IB,
                                               JB,
                                               descrB,
-                                              CUDA_R_64F,
+                                              CUDA_C_64F,
                                               &lwork_getrs ) );
 
     lwork = ( lwork_getrf > lwork_getrs ) ? lwork_getrf : lwork_getrs;
@@ -202,50 +203,30 @@ void MultiGPU( const int &num_devices,
 
     CheckMemoryUsed( num_devices );
 
+    std::printf( "\nRunning GETRF\n" );
+
     CUDA_RT_CALL( cudaEventRecord( startEvent ) );
 
-    std::printf( "\nSolve A*X = B: GETRF and GETRS\n" );
-    CUDA_RT_CALL( cusolverMgGetrf( cusolverMgH,
-                                   N,
-                                   N,
-                                   reinterpret_cast<void **>( array_d_A.data( ) ),
-                                   IA,
-                                   JA,
-                                   descrA,
-                                   array_d_IPIV.data( ),
-                                   CUDA_R_64F,
-                                   reinterpret_cast<void **>( array_d_work.data( ) ),
-                                   lwork,
-                                   &info /* host */ ) );
+    for ( int i = 0; i < loops; i++ ) {
 
-    CUDA_RT_CALL( cudaDeviceSynchronize( ) ); /* sync all devices */
+        CUDA_RT_CALL( cusolverMgGetrf( cusolverMgH,
+                                       N,
+                                       N,
+                                       reinterpret_cast<void **>( array_d_A.data( ) ),
+                                       IA,
+                                       JA,
+                                       descrA,
+                                       array_d_IPIV.data( ),
+                                       CUDA_C_64F,
+                                       reinterpret_cast<void **>( array_d_work.data( ) ),
+                                       lwork,
+                                       &info /* host */ ) );
 
-    if ( info ) {
-        throw std::runtime_error( std::to_string( -info ) + "-th parameter is wrong (cusolverMgGetrf) \n" );
-    }
+        CUDA_RT_CALL( cudaDeviceSynchronize( ) ); /* sync all devices */
 
-    CUDA_RT_CALL( cusolverMgGetrs( cusolverMgH,
-                                   CUBLAS_OP_N,
-                                   N,
-                                   1, /* NRHS */
-                                   reinterpret_cast<void **>( array_d_A.data( ) ),
-                                   IA,
-                                   JA,
-                                   descrA,
-                                   array_d_IPIV.data( ),
-                                   reinterpret_cast<void **>( array_d_B.data( ) ),
-                                   IB,
-                                   JB,
-                                   descrB,
-                                   CUDA_R_64F,
-                                   reinterpret_cast<void **>( array_d_work.data( ) ),
-                                   lwork,
-                                   &info /* host */ ) );
-
-    CUDA_RT_CALL( cudaDeviceSynchronize( ) ); /* sync all devices */
-
-    if ( info ) {
-        throw std::runtime_error( std::to_string( -info ) + "-th parameter is wrong (cusolverMgGetrs) \n" );
+        if ( info ) {
+            throw std::runtime_error( std::to_string( -info ) + "-th parameter is wrong (cusolverMgGetrf) \n" );
+        }
     }
 
     // Stop timer
@@ -253,7 +234,10 @@ void MultiGPU( const int &num_devices,
     CUDA_RT_CALL( cudaEventSynchronize( stopEvent ) );
 
     CUDA_RT_CALL( cudaEventElapsedTime( &elapsed_gpu_ms, startEvent, stopEvent ) );
-    std::printf( "\nRuntime = %0.2f ms\n\n", elapsed_gpu_ms );
+    double avg { elapsed_gpu_ms / loops };
+    double flops { FLOPS_ZGETRF( N, N ) };
+    double perf { 1e-9 * flops / avg };
+    std::printf( "\nRuntime = %0.2f ms (avg over %d runs) : @ %0.2f GFLOPs\n\n", avg, loops, perf );
 
 #if VERIFY
     std::printf( "Retrieve solution vector X\n" );
@@ -304,9 +288,16 @@ void MultiGPU( const int &num_devices,
 
 int main( int argc, char *argv[] ) {
 
-    int m = 512;
-    if ( argc > 1 )
-        m = std::atoi( argv[1] );
+    int m {};
+    int loops {};
+
+    if ( argc < 3 ) {
+        m     = 512;
+        loops = 5;
+    } else {
+        m     = std::atoi( argv[1] );
+        loops = std::atoi( argv[2] );
+    }
 
     // Setup for MultiGPU version
     int num_devices {};
@@ -323,7 +314,7 @@ int main( int argc, char *argv[] ) {
     const int lda { m };
     const int ldb { m };
 
-    using data_type = double;
+    using data_type = cuDoubleComplex;
 
     data_type *m_A {};
     data_type *m_B {};
@@ -339,16 +330,20 @@ int main( int argc, char *argv[] ) {
 
     // Generate random numbers on the GPU
     // Convert to double and double the number of items for cuRand
-    CreateRandomData( "A", sizeA, m_A );
-    CreateRandomData( "B", sizeB, m_B );
+    CreateRandomData( "A", sizeA * 2, reinterpret_cast<double *>( m_A ) );
+    CreateRandomData( "B", sizeB * 2, reinterpret_cast<double *>( m_B ) );
 
     CUDA_RT_CALL( cudaDeviceSynchronize( ) );
 
     // Managed Memory
     for ( int i = 1; i < ( num_devices * 2 ); i *= 2 ) {
         std::printf( "\n\n******************************************\n" );
+        std::printf( "Run Warmup\n" );
+        MultiGPU( i, device_list.data( ), 1, m, lda, ldb, m_A, m_B, m_X );
+
+        std::printf( "\n\n******************************************\n" );
         std::printf( "Run LU Decomposition w/ %d GPUs\n", i );
-        MultiGPU( i, device_list.data( ), m, lda, ldb, m_A, m_B, m_X );
+        MultiGPU( i, device_list.data( ), loops, m, lda, ldb, m_A, m_B, m_X );
     }
 
     CUDA_RT_CALL( cudaFree( m_A ) );

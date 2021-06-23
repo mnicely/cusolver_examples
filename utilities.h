@@ -24,6 +24,15 @@
 #include <random>
 #include <vector>
 
+ #define FMULS_GETRF(m_, n_) ( ((m_) < (n_)) \
+     ? (0.5 * (m_) * ((m_) * ((n_) - (1./3.) * (m_) - 1. ) + (n_)) + (2. / 3.) * (m_)) \
+     : (0.5 * (n_) * ((n_) * ((m_) - (1./3.) * (n_) - 1. ) + (m_)) + (2. / 3.) * (n_)) )
+ #define FADDS_GETRF(m_, n_) ( ((m_) < (n_)) \
+     ? (0.5 * (m_) * ((m_) * ((n_) - (1./3.) * (m_)      ) - (n_)) + (1. / 6.) * (m_)) \
+     : (0.5 * (n_) * ((n_) * ((m_) - (1./3.) * (n_)      ) - (m_)) + (1. / 6.) * (n_)) )
+
+ #define FLOPS_ZGETRF(m_, n_) (6. * FMULS_GETRF((double)(m_), (double)(n_)) + 2.0 * FADDS_GETRF((double)(m_), (double)(n_)) )
+
 // *************** FOR ERROR CHECKING *******************
 #ifndef CUDA_RT_CALL
 #define CUDA_RT_CALL( call )                                                                                           \

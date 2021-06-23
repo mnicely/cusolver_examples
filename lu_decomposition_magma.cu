@@ -20,8 +20,8 @@
 
 #include <cassert>
 #include <cstdio>
+#include <cstring>
 #include <stdexcept>
-#include <string>
 
 #include <curand.h>
 
@@ -31,17 +31,15 @@
 
 #define VERIFY 0
 
-constexpr int pivot_on { 1 };
-
 template<typename T, typename U>
-void SingleGPUManaged( const int &device, const U &N, const U &lda, const U &ldb, T *A, T *B ) {
-
-    size_t sizeBytesA { sizeof( T ) * lda * N };
-    size_t sizeBytesB { sizeof( T ) * N };
+void SingleGPUManaged( const int &ngpu, const int &loops, const U &N, const U &lda, const U &ldb, T *A, T *B ) {
 
 #if VERIFY
     T *B_input {};
     T *A_input {};
+
+    size_t sizeBytesA { sizeof( T ) * lda * N };
+    size_t sizeBytesB { sizeof( T ) * N };
 
     CUDA_RT_CALL( cudaMallocManaged( &A_input, sizeBytesA ) );
     CUDA_RT_CALL( cudaMallocManaged( &B_input, sizeBytesB ) );
@@ -53,9 +51,6 @@ void SingleGPUManaged( const int &device, const U &N, const U &lda, const U &ldb
     CUDA_RT_CALL( cudaMemcpy( B_input, B, sizeBytesB, cudaMemcpyDeviceToHost ) );
 #endif
 
-    CUDA_RT_CALL( cudaMemPrefetchAsync( A, sizeBytesA, device, NULL ) );
-    CUDA_RT_CALL( cudaMemPrefetchAsync( B, sizeBytesB, device, NULL ) );
-
     // Start timer
     cudaEvent_t startEvent { nullptr };
     cudaEvent_t stopEvent { nullptr };
@@ -64,106 +59,62 @@ void SingleGPUManaged( const int &device, const U &N, const U &lda, const U &ldb
     CUDA_RT_CALL( cudaEventCreate( &startEvent, cudaEventBlockingSync ) );
     CUDA_RT_CALL( cudaEventCreate( &stopEvent, cudaEventBlockingSync ) );
 
-    if ( pivot_on ) {
-        std::printf( "Pivot is on : compute P*A = L*U\n" );
-    } else {
-        std::printf( "Pivot is off: compute A = L*U (not numerically stable)\n" );
-    }
+    std::printf( "Pivot is on : compute P*A = L*U\n" );
 
-    /* step 1: create cusolver handle, bind a stream */
-
-    // Create stream
-    cudaStream_t stream {};
-    CUDA_RT_CALL( cudaStreamCreate( &stream ) );
-
-    magma_init( );
-
-    /* step 2: copy A to device */
-    int *d_info { nullptr }; /* error info */
-    CUDA_RT_CALL( cudaMallocManaged( &d_info, sizeof( int ) ) );
+    magma_int_t info {}; /* error info */
 
     U *d_Ipiv { nullptr }; /* pivoting sequence */
-    if ( pivot_on ) {
-        CUDA_RT_CALL( cudaMallocManaged( &d_Ipiv, sizeof( U ) * N ) );
-        CUDA_RT_CALL( cudaMemPrefetchAsync( d_Ipiv, sizeof( U ) * N, device, stream ) );
+    if ( MAGMA_SUCCESS != magma_imalloc_cpu( &d_Ipiv, N ) ) {
+        throw std::runtime_error( "Error allocating d_Ipiv\n" );
     }
 
     // Check GPU memory used on single GPU
     CheckMemoryUsed( 1 );
 
+    std::printf( "\nRunning GETRF\n" );
+
     CUDA_RT_CALL( cudaEventRecord( startEvent ) );
 
-    cudaDeviceSynchronize( );
+    for ( int i = 0; i < loops; i++ ) {
 
-    std::printf( "\nSolve A*X = B: GETRF and GETRS\n" );
+        /* step 4: LU factorization */
+        if ( ngpu > 1 ) {
+            CUDA_RT_CALL( magma_zgetrf_m( ngpu, N, N, A, lda, d_Ipiv, &info ) );
+        } else {
+            CUDA_RT_CALL( magma_zgetrf( N, N, A, lda, d_Ipiv, &info ) );
+        }
 
-    /* step 4: LU factorization */
-    if ( pivot_on ) {
-        CUDA_RT_CALL( magma_zgetrf_gpu( N, N, A, lda, d_Ipiv, d_info ) );
-    } else {
-        CUDA_RT_CALL( magma_zgetrf_nopiv_gpu( N, N, A, lda, d_info ) );
+        if ( info != 0 ) {
+            throw std::runtime_error( std::to_string( -info ) + "-th parameter is wrong (magma_zgetrf) \n" );
+        }
     }
 
-    // Must be here to retrieve d_info
-    CUDA_RT_CALL( cudaStreamSynchronize( stream ) );
-
-    if ( *d_info ) {
-        throw std::runtime_error( std::to_string( -*d_info ) + "-th parameter is wrong (cusolverDnDgetrf) \n" );
-    }
-
-    /*
-     * step 5: solve A*X = B
-     */
-
-    if ( pivot_on ) {
-        CUDA_RT_CALL( magma_zgetrs_gpu( MagmaNoTrans,
-                                        N,
-                                        1, /* nrhs */
-                                        A,
-                                        lda,
-                                        d_Ipiv,
-                                        B,
-                                        ldb,
-                                        d_info ) );
-    } else {
-        CUDA_RT_CALL( magma_zgetrs_nopiv_gpu( MagmaNoTrans,
-                                              N,
-                                              1, /* nrhs */
-                                              A,
-                                              lda,
-                                              B,
-                                              ldb,
-                                              d_info ) );
-    }
-
-    // Must be here to retrieve d_info
-    CUDA_RT_CALL( cudaStreamSynchronize( stream ) );
-
-    if ( *d_info ) {
-        throw std::runtime_error( std::to_string( -*d_info ) + "-th parameter is wrong (cusolverDnDgetrs) \n" );
-    }
+    CUDA_RT_CALL( cudaDeviceSynchronize( ) );
 
     // Stop timer
     CUDA_RT_CALL( cudaEventRecord( stopEvent ) );
     CUDA_RT_CALL( cudaEventSynchronize( stopEvent ) );
 
     CUDA_RT_CALL( cudaEventElapsedTime( &elapsed_gpu_ms, startEvent, stopEvent ) );
-    std::printf( "\nRuntime = %0.2f ms\n\n", elapsed_gpu_ms );
+    double avg { elapsed_gpu_ms / loops };
+    double flops { FLOPS_ZGETRF( N, N ) };
+    double perf { 1e-9 * flops / avg };
+    std::printf( "\nRuntime = %0.2f ms (avg over %d runs) : @ %0.2f GFLOPs\n\n", avg, loops, perf );
 
 #if VERIFY
     CUDA_RT_CALL( cudaMemPrefetchAsync( B, sizeBytesB, cudaCpuDeviceId, stream ) );
 
     // Calculate Residual Error
     CalculateResidualError( N,
-        lda,
-        reinterpret_cast<double *>( A_input ),
-        reinterpret_cast<double *>( B_input ),
-        reinterpret_cast<double *>( B ) );
+                            lda,
+                            reinterpret_cast<double *>( A_input ),
+                            reinterpret_cast<double *>( B_input ),
+                            reinterpret_cast<double *>( B ) );
 #endif
 
-    CUDA_RT_CALL( cudaFree( d_Ipiv ) );
-    CUDA_RT_CALL( cudaFree( d_info ) );
-    CUDA_RT_CALL( cudaStreamDestroy( stream ) );
+    if ( MAGMA_SUCCESS != magma_free_cpu( d_Ipiv ) ) {
+        throw std::runtime_error( "Error freeing d_Ipiv\n" );
+    }
     CUDA_RT_CALL( cudaEventDestroy( startEvent ) );
     CUDA_RT_CALL( cudaEventDestroy( stopEvent ) );
 #if VERIFY
@@ -174,37 +125,76 @@ void SingleGPUManaged( const int &device, const U &N, const U &lda, const U &ldb
 
 int main( int argc, char *argv[] ) {
 
-    magma_int_t m = 512;
-    if ( argc > 1 )
-        m = std::atoi( argv[1] );
+    if ( MAGMA_SUCCESS != magma_init( ) ) {
+        throw std::runtime_error( "Error magma_init\n" );
+    }
 
-    int device = -1;
-    CUDA_RT_CALL( cudaGetDevice( &device ) );
+    magma_int_t m {};
+    magma_int_t loops {};
+    if ( argc < 3 ) {
+        m     = 512;
+        loops = 5;
+    } else {
+        m     = std::atoi( argv[1] );
+        loops = std::atoi( argv[2] );
+    }
+
+    magma_int_t ngpu = magma_num_gpus( );
+    std::printf( "Magma sees %llu GPUs\n", ngpu );
 
     const magma_int_t lda { m };
     const magma_int_t ldb { m };
 
-    using data_type = cuDoubleComplex;
+    using data_type = magmaDoubleComplex;
 
-    data_type *m_A {};
-    data_type *m_B {};
+    data_type *temp_A {};
+    data_type *temp_B {};
 
     size_t sizeA { static_cast<size_t>( lda ) * m };
     size_t sizeB { static_cast<size_t>( m ) };
 
-    CUDA_RT_CALL( cudaMallocManaged( &m_A, sizeof( data_type ) * sizeA ) );
-    CUDA_RT_CALL( cudaMallocManaged( &m_B, sizeof( data_type ) * sizeB ) );
+    CUDA_RT_CALL( cudaMallocManaged( &temp_A, sizeof( data_type ) * sizeA ) );
+    CUDA_RT_CALL( cudaMallocManaged( &temp_B, sizeof( data_type ) * sizeB ) );
 
     // Generate random numbers on the GPU
-    CreateRandomData( "A", sizeA * 2, reinterpret_cast<double *>( m_A ) );
-    CreateRandomData( "B", sizeB * 2, reinterpret_cast<double *>( m_B ) );
+    CreateRandomData( "A", sizeA * 2, reinterpret_cast<double *>( temp_A ) );
+    CreateRandomData( "B", sizeB * 2, reinterpret_cast<double *>( temp_B ) );
+
+    data_type *m_A {};
+    data_type *m_B {};
+
+    if ( MAGMA_SUCCESS != magma_zmalloc_pinned( &m_A, sizeA ) ) {
+        throw std::runtime_error( "Error allocating A\n" );
+    }
+    if ( MAGMA_SUCCESS != magma_zmalloc_pinned( &m_B, sizeB ) ) {
+        throw std::runtime_error( "Error allocating B\n" );
+    }
+
+    std::memcpy( m_A, temp_A, sizeof( data_type ) * sizeA );
+    std::memcpy( m_B, temp_B, sizeof( data_type ) * sizeB );
+
+    // Free memory
+    CUDA_RT_CALL( cudaFree( temp_A ) );
+    CUDA_RT_CALL( cudaFree( temp_B ) );
 
     // Managed Memory
-    std::printf( "Run LU Decomposition\n" );
-    SingleGPUManaged( device, m, lda, ldb, m_A, m_B );
+    for ( int i = 1; i < ( ngpu * 2 ); i *= 2 ) {
+        std::printf( "\n\n******************************************\n" );
+        std::printf( "Run Warmup w/ %d GPUs\n", i );
+        SingleGPUManaged( ngpu, 1, m, lda, ldb, m_A, m_B );
 
-    CUDA_RT_CALL( cudaFree( m_A ) );
-    CUDA_RT_CALL( cudaFree( m_B ) );
+        std::printf( "\n\n******************************************\n" );
+        std::printf( "Run LU Decomposition w/ %d GPUs\n", i );
+        SingleGPUManaged( ngpu, loops, m, lda, ldb, m_A, m_B );
+    }
+
+    if ( MAGMA_SUCCESS != magma_free_pinned( m_A ) ) {
+        throw std::runtime_error( "Error freeing A\n" );
+    }
+
+    if ( MAGMA_SUCCESS != magma_free_pinned( m_B ) ) {
+        throw std::runtime_error( "Error freeing B\n" );
+    }
 
     return ( EXIT_SUCCESS );
 }
